@@ -1,19 +1,18 @@
 {
-  "name": "scrollex-docs",
+  "name": "scrollex-website",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.21.0",
-    "react-syntax-highlighter": "^15.5.0",
-    "@oxog/scrollex": "file:.."
+    "react-syntax-highlighter": "^15.5.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.45",

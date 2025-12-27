@@ -1,6 +1,73 @@
-import { useState, useRef, useMemo } from 'react'
-import { useVirtualList } from '@oxog/scrollex'
+import { useState, useRef, useEffect } from 'react'
 import styles from './Examples.module.css'
+
+// Simple virtualization hook (native implementation for demo)
+const OVERSCAN = 3
+
+function useSimpleVirtualList(
+  containerRef: React.RefObject<HTMLDivElement>,
+  itemCount: number,
+  getItemHeight: (index: number) => number
+) {
+  const [scrollTop, setScrollTop] = useState(0)
+  const [containerHeight, setContainerHeight] = useState(400)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const handleScroll = () => setScrollTop(container.scrollTop)
+    const handleResize = () => setContainerHeight(container.clientHeight)
+
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    window.addEventListener('resize', handleResize)
+    handleResize()
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [containerRef])
+
+  // Calculate positions
+  const positions: number[] = []
+  let totalSize = 0
+  for (let i = 0; i < itemCount; i++) {
+    positions.push(totalSize)
+    totalSize += getItemHeight(i)
+  }
+
+  // Find visible range
+  let startIndex = 0
+  for (let i = 0; i < itemCount; i++) {
+    if (positions[i] + getItemHeight(i) > scrollTop) {
+      startIndex = Math.max(0, i - OVERSCAN)
+      break
+    }
+  }
+
+  let endIndex = startIndex
+  for (let i = startIndex; i < itemCount; i++) {
+    if (positions[i] > scrollTop + containerHeight) {
+      endIndex = Math.min(itemCount - 1, i + OVERSCAN)
+      break
+    }
+    endIndex = i
+  }
+  endIndex = Math.min(itemCount - 1, endIndex + OVERSCAN)
+
+  const virtualItems = []
+  for (let i = startIndex; i <= endIndex; i++) {
+    virtualItems.push({
+      index: i,
+      key: i,
+      start: positions[i],
+      size: getItemHeight(i),
+    })
+  }
+
+  return { virtualItems, totalSize }
+}
 
 // Static data for examples (defined outside components to avoid recreating)
 const basicItems = Array.from({ length: 1000 }, (_, i) => ({
@@ -33,12 +100,11 @@ const tableItems = Array.from({ length: 5000 }, (_, i) => ({
 function BasicListExample() {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { virtualItems, totalSize } = useVirtualList({
-    count: basicItems.length,
-    estimatedItemHeight: 50,
-    overscan: 3,
+  const { virtualItems, totalSize } = useSimpleVirtualList(
     containerRef,
-  })
+    basicItems.length,
+    () => 50
+  )
 
   return (
     <div ref={containerRef} className={styles.listContainer}>
@@ -72,13 +138,11 @@ function BasicListExample() {
 function DynamicHeightsExample() {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { virtualItems, totalSize } = useVirtualList({
-    count: dynamicItems.length,
-    estimatedItemHeight: 80,
-    getItemHeight: (index) => dynamicItems[index].height,
-    overscan: 5,
+  const { virtualItems, totalSize } = useSimpleVirtualList(
     containerRef,
-  })
+    dynamicItems.length,
+    (index) => dynamicItems[index].height
+  )
 
   return (
     <div ref={containerRef} className={styles.listContainer}>
@@ -112,12 +176,11 @@ function DynamicHeightsExample() {
 function CardsExample() {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { virtualItems, totalSize } = useVirtualList({
-    count: cardItems.length,
-    estimatedItemHeight: 220,
-    overscan: 2,
+  const { virtualItems, totalSize } = useSimpleVirtualList(
     containerRef,
-  })
+    cardItems.length,
+    () => 220
+  )
 
   return (
     <div ref={containerRef} className={styles.listContainer}>
@@ -155,12 +218,11 @@ function CardsExample() {
 function TableExample() {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const { virtualItems, totalSize } = useVirtualList({
-    count: tableItems.length,
-    estimatedItemHeight: 48,
-    overscan: 5,
+  const { virtualItems, totalSize } = useSimpleVirtualList(
     containerRef,
-  })
+    tableItems.length,
+    () => 48
+  )
 
   return (
     <div className={styles.tableWrapper}>
