@@ -1,47 +1,105 @@
-import styles from './Docs.module.css'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { Package, Zap, Settings, BookOpen, ChevronRight } from 'lucide-react'
+import { cn } from '../lib/utils'
+
+const sidebarItems = [
+  { id: 'installation', label: 'Installation', icon: Package },
+  { id: 'quick-start', label: 'Quick Start', icon: Zap },
+  { id: 'basic-usage', label: 'Basic Usage', icon: BookOpen },
+  { id: 'configuration', label: 'Configuration', icon: Settings },
+]
+
+const CodeBlock = ({ code, language = 'tsx' }: { code: string; language?: string }) => (
+  <div className="rounded-xl overflow-hidden border border-border/50 my-4">
+    <SyntaxHighlighter
+      language={language}
+      style={oneDark}
+      showLineNumbers
+      customStyle={{
+        margin: 0,
+        padding: '1rem',
+        background: '#0d1117',
+        fontSize: '0.875rem',
+      }}
+    >
+      {code.trim()}
+    </SyntaxHighlighter>
+  </div>
+)
 
 export default function GettingStarted() {
   return (
-    <div className={styles.docs}>
-      <div className={styles.container}>
-        <aside className={styles.sidebar}>
-          <nav>
-            <h3>Getting Started</h3>
-            <ul>
-              <li><a href="#installation">Installation</a></li>
-              <li><a href="#quick-start">Quick Start</a></li>
-              <li><a href="#basic-usage">Basic Usage</a></li>
-              <li><a href="#configuration">Configuration</a></li>
-            </ul>
-          </nav>
+    <div className="container mx-auto px-4 py-12">
+      <div className="flex gap-8 max-w-6xl mx-auto">
+        {/* Sidebar */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <div className="sticky top-24">
+            <h3 className="font-semibold mb-4 text-sm text-muted-foreground uppercase tracking-wider">
+              Getting Started
+            </h3>
+            <nav className="space-y-1">
+              {sidebarItems.map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                >
+                  <item.icon className="w-4 h-4" />
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          </div>
         </aside>
 
-        <main className={styles.content}>
-          <h1>Getting Started</h1>
+        {/* Content */}
+        <main className="flex-1 min-w-0">
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold mb-4">
+              Getting <span className="text-gradient">Started</span>
+            </h1>
+            <p className="text-lg text-muted-foreground">
+              Learn how to install and use Scrollex in your React application.
+            </p>
+          </div>
 
-          <section id="installation">
-            <h2>Installation</h2>
-            <p>Install Scrollex using your preferred package manager:</p>
-            <div className={styles.codeBlock}>
-              <pre><code>{`# npm
+          <section id="installation" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                <Package className="w-4 h-4 text-violet-400" />
+              </div>
+              Installation
+            </h2>
+            <p className="text-muted-foreground mb-4">
+              Install Scrollex using your preferred package manager:
+            </p>
+            <CodeBlock
+              language="bash"
+              code={`# npm
 npm install @oxog/scrollex
 
 # yarn
 yarn add @oxog/scrollex
 
 # pnpm
-pnpm add @oxog/scrollex`}</code></pre>
-            </div>
+pnpm add @oxog/scrollex`}
+            />
           </section>
 
-          <section id="quick-start">
-            <h2>Quick Start</h2>
-            <p>
+          <section id="quick-start" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-emerald-400" />
+              </div>
+              Quick Start
+            </h2>
+            <p className="text-muted-foreground mb-4">
               Scrollex provides a simple hook-based API for virtualizing large lists.
               Here's the minimal setup to get started:
             </p>
-            <div className={styles.codeBlock}>
-              <pre><code>{`import { useRef } from 'react'
+            <CodeBlock
+              code={`import { useRef } from 'react'
 import { useVirtualList } from '@oxog/scrollex'
 
 const items = Array.from({ length: 1000 }, (_, i) => ({
@@ -59,10 +117,7 @@ function MyList() {
   })
 
   return (
-    <div
-      ref={containerRef}
-      style={{ height: 400, overflow: 'auto' }}
-    >
+    <div ref={containerRef} style={{ height: 400, overflow: 'auto' }}>
       <div style={{ height: totalSize, position: 'relative' }}>
         {virtualItems.map((virtualItem) => (
           <div
@@ -79,17 +134,24 @@ function MyList() {
       </div>
     </div>
   )
-}`}</code></pre>
-            </div>
+}`}
+            />
           </section>
 
-          <section id="basic-usage">
-            <h2>Basic Usage</h2>
+          <section id="basic-usage" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                <BookOpen className="w-4 h-4 text-blue-400" />
+              </div>
+              Basic Usage
+            </h2>
 
-            <h3>useVirtualList Hook</h3>
-            <p>The main hook accepts a configuration object and returns virtualization helpers:</p>
-            <div className={styles.codeBlock}>
-              <pre><code>{`const {
+            <h3 className="text-lg font-semibold mt-6 mb-3">useVirtualList Hook</h3>
+            <p className="text-muted-foreground mb-4">
+              The main hook accepts a configuration object and returns virtualization helpers:
+            </p>
+            <CodeBlock
+              code={`const {
   virtualItems,      // Array of visible virtual items
   totalSize,         // Total height of all items
   scrollOffset,      // Current scroll position
@@ -105,93 +167,92 @@ function MyList() {
   overscan,            // Extra items to render (default: 5)
   getItemHeight,       // Optional: function for known heights
   horizontal,          // Enable horizontal scrolling
-})`}</code></pre>
-            </div>
+})`}
+            />
 
-            <h3>Virtual Items</h3>
-            <p>Each item in <code>virtualItems</code> contains:</p>
-            <div className={styles.codeBlock}>
-              <pre><code>{`{
+            <h3 className="text-lg font-semibold mt-6 mb-3">Virtual Items</h3>
+            <p className="text-muted-foreground mb-4">
+              Each item in <code className="px-2 py-1 rounded bg-secondary text-sm">virtualItems</code> contains:
+            </p>
+            <CodeBlock
+              code={`{
   index,  // Index in the original array
   key,    // Unique key for React
   start,  // Top position (px)
   size,   // Item height (px)
   end,    // Bottom position (px)
-}`}</code></pre>
-            </div>
+}`}
+            />
           </section>
 
-          <section id="configuration">
-            <h2>Configuration Options</h2>
-            <div className={styles.table}>
-              <table>
+          <section id="configuration" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                <Settings className="w-4 h-4 text-amber-400" />
+              </div>
+              Configuration Options
+            </h2>
+
+            <div className="rounded-xl border border-border/50 overflow-hidden">
+              <table className="w-full text-sm">
                 <thead>
-                  <tr>
-                    <th>Option</th>
-                    <th>Type</th>
-                    <th>Default</th>
-                    <th>Description</th>
+                  <tr className="bg-secondary/50">
+                    <th className="text-left px-4 py-3 font-medium">Option</th>
+                    <th className="text-left px-4 py-3 font-medium">Type</th>
+                    <th className="text-left px-4 py-3 font-medium">Default</th>
+                    <th className="text-left px-4 py-3 font-medium">Description</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr>
-                    <td><code>count</code></td>
-                    <td><code>number</code></td>
-                    <td>Required</td>
-                    <td>Total number of items to virtualize</td>
-                  </tr>
-                  <tr>
-                    <td><code>containerRef</code></td>
-                    <td><code>RefObject</code></td>
-                    <td>Required</td>
-                    <td>Ref to the scrollable container element</td>
-                  </tr>
-                  <tr>
-                    <td><code>estimatedItemHeight</code></td>
-                    <td><code>number</code></td>
-                    <td>50</td>
-                    <td>Estimated height for unmeasured items</td>
-                  </tr>
-                  <tr>
-                    <td><code>getItemHeight</code></td>
-                    <td><code>(index) =&gt; number</code></td>
-                    <td>-</td>
-                    <td>Optional function returning known item heights</td>
-                  </tr>
-                  <tr>
-                    <td><code>overscan</code></td>
-                    <td><code>number</code></td>
-                    <td>5</td>
-                    <td>Number of extra items to render outside viewport</td>
-                  </tr>
-                  <tr>
-                    <td><code>horizontal</code></td>
-                    <td><code>boolean</code></td>
-                    <td>false</td>
-                    <td>Enable horizontal scrolling</td>
-                  </tr>
-                  <tr>
-                    <td><code>getItemKey</code></td>
-                    <td><code>(index) =&gt; string | number</code></td>
-                    <td>index</td>
-                    <td>Function to generate unique keys</td>
-                  </tr>
-                  <tr>
-                    <td><code>paddingStart</code></td>
-                    <td><code>number</code></td>
-                    <td>0</td>
-                    <td>Padding at the start of the list</td>
-                  </tr>
-                  <tr>
-                    <td><code>paddingEnd</code></td>
-                    <td><code>number</code></td>
-                    <td>0</td>
-                    <td>Padding at the end of the list</td>
-                  </tr>
+                <tbody className="divide-y divide-border/50">
+                  {[
+                    ['count', 'number', 'Required', 'Total number of items to virtualize'],
+                    ['containerRef', 'RefObject', 'Required', 'Ref to the scrollable container'],
+                    ['estimatedItemHeight', 'number', '50', 'Estimated height for unmeasured items'],
+                    ['getItemHeight', '(index) => number', '-', 'Function returning known item heights'],
+                    ['overscan', 'number', '5', 'Extra items to render outside viewport'],
+                    ['horizontal', 'boolean', 'false', 'Enable horizontal scrolling'],
+                    ['getItemKey', '(index) => key', 'index', 'Function to generate unique keys'],
+                    ['paddingStart', 'number', '0', 'Padding at the start of the list'],
+                    ['paddingEnd', 'number', '0', 'Padding at the end of the list'],
+                  ].map(([option, type, def, desc]) => (
+                    <tr key={option} className="hover:bg-secondary/30 transition-colors">
+                      <td className="px-4 py-3 font-mono text-violet-400">{option}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{type}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{def}</td>
+                      <td className="px-4 py-3">{desc}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </section>
+
+          {/* Next Steps */}
+          <div className="p-6 rounded-xl glass-card">
+            <h3 className="font-semibold mb-4">Next Steps</h3>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <a
+                href="/api"
+                className="flex items-center gap-3 p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors group"
+              >
+                <div className="flex-1">
+                  <div className="font-medium">API Reference</div>
+                  <div className="text-sm text-muted-foreground">Explore the full API</div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+              </a>
+              <a
+                href="/examples"
+                className="flex items-center gap-3 p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors group"
+              >
+                <div className="flex-1">
+                  <div className="font-medium">Examples</div>
+                  <div className="text-sm text-muted-foreground">See live demos</div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:translate-x-1 transition-transform" />
+              </a>
+            </div>
+          </div>
         </main>
       </div>
     </div>

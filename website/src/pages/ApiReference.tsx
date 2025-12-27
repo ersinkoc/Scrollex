@@ -1,37 +1,84 @@
-import styles from './Docs.module.css'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { Code2, Box, Cpu, Puzzle, FileType } from 'lucide-react'
+
+const sidebarItems = [
+  { id: 'useVirtualList', label: 'useVirtualList', icon: Code2 },
+  { id: 'VirtualList', label: 'VirtualList', icon: Box },
+  { id: 'createKernel', label: 'createKernel', icon: Cpu },
+  { id: 'plugin-api', label: 'Plugin API', icon: Puzzle },
+  { id: 'types', label: 'Types', icon: FileType },
+]
+
+const CodeBlock = ({ code, language = 'tsx' }: { code: string; language?: string }) => (
+  <div className="rounded-xl overflow-hidden border border-border/50 my-4">
+    <SyntaxHighlighter
+      language={language}
+      style={oneDark}
+      showLineNumbers
+      customStyle={{
+        margin: 0,
+        padding: '1rem',
+        background: '#0d1117',
+        fontSize: '0.875rem',
+      }}
+    >
+      {code.trim()}
+    </SyntaxHighlighter>
+  </div>
+)
 
 export default function ApiReference() {
   return (
-    <div className={styles.docs}>
-      <div className={styles.container}>
-        <aside className={styles.sidebar}>
-          <nav>
-            <h3>API Reference</h3>
-            <ul>
-              <li><a href="#useVirtualList">useVirtualList</a></li>
-              <li><a href="#VirtualList">VirtualList Component</a></li>
-              <li><a href="#createKernel">createKernel</a></li>
-              <li><a href="#plugin-api">Plugin API</a></li>
-              <li><a href="#types">Types</a></li>
-            </ul>
-          </nav>
+    <div className="container mx-auto px-4 py-12">
+      <div className="flex gap-8 max-w-6xl mx-auto">
+        {/* Sidebar */}
+        <aside className="hidden lg:block w-64 shrink-0">
+          <div className="sticky top-24">
+            <h3 className="font-semibold mb-4 text-sm text-muted-foreground uppercase tracking-wider">
+              API Reference
+            </h3>
+            <nav className="space-y-1">
+              {sidebarItems.map((item) => (
+                <a
+                  key={item.id}
+                  href={`#${item.id}`}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                >
+                  <item.icon className="w-4 h-4" />
+                  {item.label}
+                </a>
+              ))}
+            </nav>
+          </div>
         </aside>
 
-        <main className={styles.content}>
-          <h1>API Reference</h1>
+        {/* Content */}
+        <main className="flex-1 min-w-0">
+          <div className="mb-8">
+            <h1 className="text-4xl font-bold mb-4">
+              API <span className="text-gradient">Reference</span>
+            </h1>
+            <p className="text-lg text-muted-foreground">
+              Complete API documentation for all Scrollex exports.
+            </p>
+          </div>
 
-          <section id="useVirtualList">
-            <h2>useVirtualList</h2>
-            <p>The primary hook for creating virtualized lists.</p>
+          <section id="useVirtualList" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center">
+                <Code2 className="w-4 h-4 text-violet-400" />
+              </div>
+              useVirtualList
+            </h2>
+            <p className="text-muted-foreground mb-4">The primary hook for creating virtualized lists.</p>
 
-            <h3>Signature</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`function useVirtualList(options: UseVirtualListOptions): UseVirtualListReturn`}</code></pre>
-            </div>
+            <h3 className="text-lg font-semibold mt-6 mb-3">Signature</h3>
+            <CodeBlock code={`function useVirtualList(options: UseVirtualListOptions): UseVirtualListReturn`} />
 
-            <h3>Options</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface UseVirtualListOptions {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Options</h3>
+            <CodeBlock
+              code={`interface UseVirtualListOptions {
   count: number                    // Total number of items
   containerRef: RefObject<HTMLDivElement>  // Ref to scroll container
   estimatedItemHeight?: number     // Estimated item height (default: 50)
@@ -42,12 +89,12 @@ export default function ApiReference() {
   initialOffset?: number           // Initial scroll offset (default: 0)
   getItemKey?: (index: number) => string | number  // Key generator
   horizontal?: boolean             // Horizontal mode (default: false)
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>Returns</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface UseVirtualListReturn {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Returns</h3>
+            <CodeBlock
+              code={`interface UseVirtualListReturn {
   virtualItems: VirtualItem[]      // Visible virtual items
   totalSize: number                // Total content height
   scrollOffset: number             // Current scroll position
@@ -59,16 +106,21 @@ export default function ApiReference() {
   getMeasurement: (index: number) => number | undefined
   invalidateMeasurement: (index: number) => void
   invalidateAllMeasurements: () => void
-}`}</code></pre>
-            </div>
+}`}
+            />
           </section>
 
-          <section id="VirtualList">
-            <h2>VirtualList Component</h2>
-            <p>A ready-to-use virtualized list component.</p>
+          <section id="VirtualList" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <Box className="w-4 h-4 text-emerald-400" />
+              </div>
+              VirtualList Component
+            </h2>
+            <p className="text-muted-foreground mb-4">A ready-to-use virtualized list component.</p>
 
-            <div className={styles.codeBlock}>
-              <pre><code>{`import { VirtualList } from '@oxog/scrollex'
+            <CodeBlock
+              code={`import { VirtualList } from '@oxog/scrollex'
 
 function MyList({ data }) {
   return (
@@ -83,12 +135,12 @@ function MyList({ data }) {
       )}
     />
   )
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>Props</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface VirtualListProps<T> {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Props</h3>
+            <CodeBlock
+              code={`interface VirtualListProps<T> {
   data: T[]                        // Array of items
   height: number | string          // Container height
   width?: number | string          // Container width
@@ -99,16 +151,21 @@ function MyList({ data }) {
   style?: CSSProperties
   onItemsRendered?: (info: ItemsRenderedInfo) => void
   onScroll?: (scrollTop: number) => void
-}`}</code></pre>
-            </div>
+}`}
+            />
           </section>
 
-          <section id="createKernel">
-            <h2>createKernel</h2>
-            <p>Create a virtualization kernel for advanced use cases.</p>
+          <section id="createKernel" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                <Cpu className="w-4 h-4 text-blue-400" />
+              </div>
+              createKernel
+            </h2>
+            <p className="text-muted-foreground mb-4">Create a virtualization kernel for advanced use cases.</p>
 
-            <div className={styles.codeBlock}>
-              <pre><code>{`import { createKernel } from '@oxog/scrollex'
+            <CodeBlock
+              code={`import { createKernel } from '@oxog/scrollex'
 
 const kernel = createKernel({
   itemCount: 1000,
@@ -133,17 +190,22 @@ kernel.scrollTo(500)
 kernel.scrollToIndex(100, { align: 'center' })
 
 // Cleanup
-kernel.destroy()`}</code></pre>
-            </div>
+kernel.destroy()`}
+            />
           </section>
 
-          <section id="plugin-api">
-            <h2>Plugin API</h2>
-            <p>Create custom plugins to extend Scrollex functionality.</p>
+          <section id="plugin-api" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-pink-500/20 flex items-center justify-center">
+                <Puzzle className="w-4 h-4 text-pink-400" />
+              </div>
+              Plugin API
+            </h2>
+            <p className="text-muted-foreground mb-4">Create custom plugins to extend Scrollex functionality.</p>
 
-            <h3>Plugin Interface</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface Plugin {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Plugin Interface</h3>
+            <CodeBlock
+              code={`interface Plugin {
   name: string
   version?: string
   type?: 'renderer' | 'behavior' | 'utility'
@@ -152,12 +214,12 @@ kernel.destroy()`}</code></pre>
   install?: (kernel: Kernel) => void
   destroy?: () => void
   hooks?: PluginHooks
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>Available Hooks</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface PluginHooks {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Available Hooks</h3>
+            <CodeBlock
+              code={`interface PluginHooks {
   onScroll?: (event: ScrollEvent) => void
   onScrollStart?: (event: ScrollStartEvent) => void
   onScrollEnd?: (event: ScrollEndEvent) => void
@@ -166,12 +228,12 @@ kernel.destroy()`}</code></pre>
   onResize?: (event: ResizeEvent) => void
   onLoadMore?: (event: LoadMoreEvent) => void
   onItemsChange?: (event: ItemsChangeEvent) => void
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>Creating a Plugin</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`import { createPlugin } from '@oxog/scrollex'
+            <h3 className="text-lg font-semibold mt-6 mb-3">Creating a Plugin</h3>
+            <CodeBlock
+              code={`import { createPlugin } from '@oxog/scrollex'
 
 const analyticsPlugin = createPlugin({
   name: 'analytics',
@@ -194,37 +256,42 @@ const analyticsPlugin = createPlugin({
       trackVisibleItems(event.range.startIndex, event.range.endIndex)
     }
   }
-})`}</code></pre>
-            </div>
+})`}
+            />
           </section>
 
-          <section id="types">
-            <h2>Types</h2>
+          <section id="types" className="mb-12 scroll-mt-24">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                <FileType className="w-4 h-4 text-amber-400" />
+              </div>
+              Types
+            </h2>
 
-            <h3>VirtualItem</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface VirtualItem {
+            <h3 className="text-lg font-semibold mt-6 mb-3">VirtualItem</h3>
+            <CodeBlock
+              code={`interface VirtualItem {
   index: number      // Index in the data array
   key: string | number  // Unique key for React
   start: number      // Top position in pixels
   size: number       // Height in pixels
   end: number        // Bottom position (start + size)
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>Range</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface Range {
+            <h3 className="text-lg font-semibold mt-6 mb-3">Range</h3>
+            <CodeBlock
+              code={`interface Range {
   startIndex: number       // First visible item index
   endIndex: number         // Last visible item index
   overscanStartIndex: number  // First rendered item (with overscan)
   overscanEndIndex: number    // Last rendered item (with overscan)
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>ScrollEvent</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface ScrollEvent {
+            <h3 className="text-lg font-semibold mt-6 mb-3">ScrollEvent</h3>
+            <CodeBlock
+              code={`interface ScrollEvent {
   scrollTop: number
   scrollLeft: number
   scrollHeight: number
@@ -233,19 +300,19 @@ const analyticsPlugin = createPlugin({
   clientWidth: number
   direction: 'forward' | 'backward'
   velocity: number
-}`}</code></pre>
-            </div>
+}`}
+            />
 
-            <h3>ScrollOptions</h3>
-            <div className={styles.codeBlock}>
-              <pre><code>{`interface ScrollOptions {
+            <h3 className="text-lg font-semibold mt-6 mb-3">ScrollOptions</h3>
+            <CodeBlock
+              code={`interface ScrollOptions {
   behavior?: 'auto' | 'smooth' | 'instant'
 }
 
 interface ScrollToIndexOptions extends ScrollOptions {
   align?: 'start' | 'center' | 'end' | 'auto'
-}`}</code></pre>
-            </div>
+}`}
+            />
           </section>
         </main>
       </div>
