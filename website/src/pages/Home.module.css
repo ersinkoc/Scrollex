@@ -1,0 +1,345 @@
+.home {
+  min-height: 100%;
+}
+
+/* Hero Section */
+.hero {
+  padding: 6rem 2rem;
+  text-align: center;
+  background: radial-gradient(ellipse at top, rgba(99, 102, 241, 0.15) 0%, transparent 60%);
+}
+
+.heroContent {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  margin-bottom: 1.5rem;
+}
+
+.heroTitle {
+  font-size: 3.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 1.5rem;
+}
+
+.gradient {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heroSubtitle {
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+  max-width: 600px;
+  margin: 0 auto 2rem;
+}
+
+.heroActions {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.875rem 1.5rem;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  color: white;
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4);
+}
+
+.primaryBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+  color: white;
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.875rem 1.5rem;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  transition: all 0.2s ease;
+}
+
+.secondaryBtn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text);
+}
+
+.installCmd {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.installCmd code {
+  background: none;
+  padding: 0;
+  color: var(--color-text-secondary);
+}
+
+.copyBtn {
+  padding: 0.25rem 0.75rem;
+  background: var(--color-bg-tertiary);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.copyBtn:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* Demo Section */
+.demoSection {
+  padding: 4rem 2rem;
+  background: var(--color-bg-secondary);
+}
+
+.demoWrapper {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.demoHeader {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.demoHeader h2 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.demoHeader p {
+  color: var(--color-text-secondary);
+}
+
+.demoContainer {
+  height: 400px;
+  overflow: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.demoItem {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.demoItemTitle {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.demoItemDesc {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+/* Features Section */
+.features {
+  padding: 6rem 2rem;
+}
+
+.featuresContent {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sectionTitle {
+  font-size: 2.25rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.sectionSubtitle {
+  text-align: center;
+  color: var(--color-text-secondary);
+  margin-bottom: 3rem;
+}
+
+.featuresGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 3rem;
+}
+
+.featureCard {
+  padding: 1.5rem;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: all 0.2s ease;
+}
+
+.featureCard:hover {
+  border-color: var(--color-primary);
+  transform: translateY(-4px);
+}
+
+.featureIcon {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.featureTitle {
+  font-size: 1.125rem;
+  margin-bottom: 0.5rem;
+}
+
+.featureDesc {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Plugins Section */
+.pluginsSection {
+  padding: 6rem 2rem;
+  background: var(--color-bg-secondary);
+}
+
+.pluginsContent {
+  max-width: 1000px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.pluginsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+  margin: 3rem 0;
+}
+
+.pluginCard {
+  padding: 1.25rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.pluginCard:hover {
+  border-color: var(--color-secondary);
+}
+
+.pluginName {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+  color: var(--color-primary);
+}
+
+.pluginDesc {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
+}
+
+.viewAllBtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: 600;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.viewAllBtn:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+/* Code Section */
+.codeSection {
+  padding: 6rem 2rem;
+}
+
+.codeContent {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.codeBlock {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.codeBlock pre {
+  margin: 0;
+  padding: 1.5rem;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+/* CTA Section */
+.cta {
+  padding: 6rem 2rem;
+  background: radial-gradient(ellipse at bottom, rgba(99, 102, 241, 0.15) 0%, transparent 60%);
+  text-align: center;
+}
+
+.ctaContent h2 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.ctaContent p {
+  color: var(--color-text-secondary);
+  margin-bottom: 2rem;
+}
+
+@media (max-width: 768px) {
+  .heroTitle {
+    font-size: 2.5rem;
+  }
+
+  .heroSubtitle {
+    font-size: 1rem;
+  }
+
+  .heroActions {
+    flex-direction: column;
+  }
+
+  .sectionTitle {
+    font-size: 1.75rem;
+  }
+}
