@@ -39,7 +39,7 @@ export default function Layout({ children }: LayoutProps) {
             ))}
           </nav>
           <a
-            href="https://github.com/oxog/scrollex"
+            href="https://github.com/ersinkoc/Scrollex"
             target="_blank"
             rel="noopener noreferrer"
             className={styles.githubLink}
@@ -55,8 +55,8 @@ export default function Layout({ children }: LayoutProps) {
         <div className={styles.footerContent}>
           <p>
             Built with React by{' '}
-            <a href="https://oxog.dev" target="_blank" rel="noopener noreferrer">
-              OXOG
+            <a href="https://github.com/ersinkoc" target="_blank" rel="noopener noreferrer">
+              Ersin KOC
             </a>
           </p>
           <p className={styles.footerMuted}>

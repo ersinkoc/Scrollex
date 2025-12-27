@@ -2,15 +2,18 @@
   "name": "@oxog/scrollex",
   "version": "1.0.0",
   "description": "Zero-dependency React virtualization library with micro-kernel plugin architecture",
-  "author": "ersinkoc",
+  "author": {
+    "name": "Ersin KOC",
+    "url": "https://github.com/ersinkoc"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ersinkoc/scrollex.git"
+    "url": "git+https://github.com/ersinkoc/Scrollex.git"
   },
   "homepage": "https://scrollex.oxog.dev",
   "bugs": {
-    "url": "https://github.com/ersinkoc/scrollex/issues"
+    "url": "https://github.com/ersinkoc/Scrollex/issues"
   },
   "keywords": [
     "react",

@@ -1,0 +1,75 @@
+.browser {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  background: var(--color-bg);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #2d2d2d;
+  border-bottom: 1px solid #404040;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.addressBar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: #1e1e1e;
+  border-radius: 6px;
+  max-width: 400px;
+}
+
+.lockIcon {
+  width: 14px;
+  height: 14px;
+  color: #27ca40;
+  flex-shrink: 0;
+}
+
+.url {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-left: auto;
+}
+
+.content {
+  background: var(--color-bg);
+}
+
+@media (max-width: 640px) {
+  .addressBar {
+    display: none;
+  }
+
+  .title {
+    margin-left: 1rem;
+  }
+}

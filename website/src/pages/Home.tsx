@@ -1,5 +1,7 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import CodeBlock from '../components/CodeBlock'
+import BrowserFrame from '../components/BrowserFrame'
 import styles from './Home.module.css'
 
 const features = [
@@ -50,7 +52,11 @@ const ITEM_HEIGHT = 72
 const OVERSCAN = 3
 
 // Simple virtualization hook for demo
-function useSimpleVirtualList(containerRef: React.RefObject<HTMLDivElement>, itemCount: number, itemHeight: number) {
+function useSimpleVirtualList(
+  containerRef: React.RefObject<HTMLDivElement>,
+  itemCount: number,
+  itemHeight: number
+) {
   const [scrollTop, setScrollTop] = useState(0)
   const [containerHeight, setContainerHeight] = useState(400)
 
@@ -78,7 +84,10 @@ function useSimpleVirtualList(containerRef: React.RefObject<HTMLDivElement>, ite
 
   const totalSize = itemCount * itemHeight
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN)
-  const endIndex = Math.min(itemCount - 1, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN)
+  const endIndex = Math.min(
+    itemCount - 1,
+    Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN
+  )
 
   const virtualItems = []
   for (let i = startIndex; i <= endIndex; i++) {
@@ -96,7 +105,11 @@ function useSimpleVirtualList(containerRef: React.RefObject<HTMLDivElement>, ite
 // Demo component
 function VirtualListDemo() {
   const containerRef = useRef<HTMLDivElement>(null)
-  const { virtualItems, totalSize } = useSimpleVirtualList(containerRef, TOTAL_ITEMS, ITEM_HEIGHT)
+  const { virtualItems, totalSize } = useSimpleVirtualList(
+    containerRef,
+    TOTAL_ITEMS,
+    ITEM_HEIGHT
+  )
 
   return (
     <div ref={containerRef} className={styles.demoContainer}>
@@ -123,6 +136,44 @@ function VirtualListDemo() {
   )
 }
 
+const exampleCode = `import { useRef } from 'react'
+import { useVirtualList } from '@oxog/scrollex'
+
+const items = Array.from({ length: 10000 }, (_, i) => ({
+  id: i,
+  text: \`Item \${i + 1}\`
+}))
+
+function MyList() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const { virtualItems, totalSize } = useVirtualList({
+    count: items.length,
+    estimatedItemHeight: 50,
+    overscan: 5,
+    containerRef,
+  })
+
+  return (
+    <div ref={containerRef} style={{ height: 400, overflow: 'auto' }}>
+      <div style={{ height: totalSize, position: 'relative' }}>
+        {virtualItems.map((virtualItem) => (
+          <div
+            key={virtualItem.key}
+            style={{
+              position: 'absolute',
+              top: virtualItem.start,
+              height: virtualItem.size,
+            }}
+          >
+            {items[virtualItem.index].text}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}`
+
 export default function Home() {
   return (
     <div className={styles.home}>
@@ -131,19 +182,18 @@ export default function Home() {
         <div className={styles.heroContent}>
           <div className={styles.badge}>v1.0.0 - Zero Dependencies</div>
           <h1 className={styles.heroTitle}>
-            Virtual Scrolling for{' '}
-            <span className={styles.gradient}>React</span>
+            Virtual Scrolling for <span className={styles.gradient}>React</span>
           </h1>
           <p className={styles.heroSubtitle}>
-            A lightweight, plugin-based virtualization library with micro-kernel architecture.
-            Render millions of items with ease.
+            A lightweight, plugin-based virtualization library with micro-kernel
+            architecture. Render millions of items with ease.
           </p>
           <div className={styles.heroActions}>
             <Link to="/getting-started" className={styles.primaryBtn}>
               Get Started
             </Link>
             <a
-              href="https://github.com/oxog/scrollex"
+              href="https://github.com/ersinkoc/scrollex"
               target="_blank"
               rel="noopener noreferrer"
               className={styles.secondaryBtn}
@@ -170,7 +220,9 @@ export default function Home() {
             <h2>Live Demo - 10,000 Items</h2>
             <p>Scroll through thousands of items at 60fps</p>
           </div>
-          <VirtualListDemo />
+          <BrowserFrame url="scrollex.oxog.dev/demo" title="Virtual List">
+            <VirtualListDemo />
+          </BrowserFrame>
         </div>
       </section>
 
@@ -215,47 +267,10 @@ export default function Home() {
       <section className={styles.codeSection}>
         <div className={styles.codeContent}>
           <h2 className={styles.sectionTitle}>Simple API</h2>
-          <div className={styles.codeBlock}>
-            <pre>
-              <code>{`import { useRef } from 'react'
-import { useVirtualList } from '@oxog/scrollex'
-
-const items = Array.from({ length: 10000 }, (_, i) => ({
-  id: i,
-  text: \`Item \${i + 1}\`
-}))
-
-function MyList() {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  const { virtualItems, totalSize } = useVirtualList({
-    count: items.length,
-    estimatedItemHeight: 50,
-    overscan: 5,
-    containerRef,
-  })
-
-  return (
-    <div ref={containerRef} style={{ height: 400, overflow: 'auto' }}>
-      <div style={{ height: totalSize, position: 'relative' }}>
-        {virtualItems.map((virtualItem) => (
-          <div
-            key={virtualItem.key}
-            style={{
-              position: 'absolute',
-              top: virtualItem.start,
-              height: virtualItem.size,
-            }}
-          >
-            {items[virtualItem.index].text}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}`}</code>
-            </pre>
-          </div>
+          <p className={styles.sectionSubtitle}>
+            Get started with just a few lines of code
+          </p>
+          <CodeBlock code={exampleCode} language="tsx" filename="MyList.tsx" />
         </div>
       </section>
 
