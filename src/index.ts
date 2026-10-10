@@ -82,6 +82,9 @@ export type {
   UseVirtualMasonryReturn,
 } from './types.js'
 
+// Hook types
+export type { UseMeasureOptions, UseMeasureReturn } from './react/hooks/use-measure.js'
+
 // Core plugin types
 export type {
   ListRendererOptions,

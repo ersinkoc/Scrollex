@@ -309,7 +309,8 @@ describe('dragToReorder', () => {
 
   describe('canDrop', () => {
     it('should respect canDrop callback', () => {
-      const canDrop = vi.fn((from: number, to: number) => to !== 5)
+      // hovering the top half of row 5 while dragging row 2 would drop the item at index 4
+      const canDrop = vi.fn((from: number, to: number) => to !== 4)
 
       const plugin = dragToReorder({
         onReorder,
@@ -342,7 +343,7 @@ describe('dragToReorder', () => {
 
       expect((overEvent.dataTransfer as DataTransfer).dropEffect).toBe('move')
 
-      // Drag over disallowed target (index 5)
+      // Drag over a row whose drop position (index 4) is disallowed
       const props5 = plugin.api?.getDragHandleProps(5)
       const overEvent5 = createDragEvent('dragover', {
         clientY: 10,
@@ -383,9 +384,11 @@ describe('dragToReorder', () => {
       const props2 = plugin.api?.getDragHandleProps(2)
       props2?.onDragOver(createDragEvent('dragover', { clientY: 75 }))
 
-      // End drag
+      // Drop, then end drag
+      props2?.onDrop(createDragEvent('drop'))
       props?.onDragEnd(createDragEvent('dragend'))
 
+      expect(canDrop).toHaveBeenCalled()
       expect(onReorder).not.toHaveBeenCalled()
     })
   })
@@ -443,7 +446,8 @@ describe('dragToReorder', () => {
         },
       }))
 
-      // End drag
+      // Drop on the target, then the source receives dragend
+      props4?.onDrop(createDragEvent('drop'))
       props1?.onDragEnd(createDragEvent('dragend'))
 
       expect(onReorder).toHaveBeenCalledWith(1, expect.any(Number))
@@ -662,5 +666,125 @@ describe('dragToReorder', () => {
       // Drop target should be clamped
       expect(plugin.api?.getDropTargetIndex()).toBeLessThanOrEqual(4)
     })
+  })
+})
+
+describe('dragToReorder drop handling', () => {
+  function rowEvent(type: string, clientY: number, top: number): DragEvent {
+    return createDragEvent(type, {
+      clientY,
+      currentTarget: {
+        getBoundingClientRect: () => ({ top, left: 0, right: 100, bottom: top + 50, width: 100, height: 50, x: 0, y: top, toJSON: () => {} }),
+      },
+    })
+  }
+
+  it('should not reorder when the drag is cancelled without a drop', () => {
+    const onReorder = vi.fn()
+    const plugin = dragToReorder({ onReorder })
+    plugin.install?.(createMockKernel())
+
+    const source = plugin.api?.getDragHandleProps(1)
+    source?.onDragStart(createDragEvent('dragstart'))
+    plugin.api?.getDragHandleProps(4).onDragOver(rowEvent('dragover', 225, 200))
+    source?.onDragEnd(createDragEvent('dragend'))
+
+    expect(onReorder).not.toHaveBeenCalled()
+    expect(plugin.api?.isDragging()).toBe(false)
+  })
+
+  it('should reorder on drop even if the source never receives dragend', () => {
+    const onReorder = vi.fn()
+    const plugin = dragToReorder({ onReorder })
+    plugin.install?.(createMockKernel())
+
+    plugin.api?.getDragHandleProps(1).onDragStart(createDragEvent('dragstart'))
+    const target = plugin.api?.getDragHandleProps(4)
+    target?.onDragOver(rowEvent('dragover', 225, 200))
+    target?.onDrop(createDragEvent('drop'))
+
+    expect(onReorder).toHaveBeenCalledWith(1, 4)
+    expect(plugin.api?.isDragging()).toBe(false)
+  })
+})
+
+describe('dragToReorder canDrop while dragging', () => {
+  // The drop asks canDrop(from, finalIndex); the cursor feedback has to ask the same question.
+  function dragOver(row: number, clientY: number, canDrop: (from: number, to: number) => boolean) {
+    const onReorder = vi.fn()
+    const plugin = dragToReorder({ onReorder, canDrop })
+    plugin.install?.(createMockKernel())
+    plugin.api?.getDragHandleProps(0).onDragStart(createDragEvent('dragstart'))
+    const over = createDragEvent('dragover', { clientY })
+    plugin.api?.getDragHandleProps(row).onDragOver(over)
+    plugin.api?.getDragHandleProps(row).onDrop(createDragEvent('drop', { clientY }))
+    return { effect: (over.dataTransfer as DataTransfer).dropEffect, onReorder }
+  }
+
+  it('should allow the drop cursor when the final index is allowed even if the hovered row is not', () => {
+    // top half of row 3 while dragging row 0 drops the item at index 2
+    const { effect, onReorder } = dragOver(3, 10, (_from, to) => to === 2)
+
+    expect(effect).toBe('move')
+    expect(onReorder).toHaveBeenCalledWith(0, 2)
+  })
+
+  it('should refuse the drop cursor when the final index is refused even if the hovered row is allowed', () => {
+    const { effect, onReorder } = dragOver(3, 10, (_from, to) => to !== 2)
+
+    expect(effect).toBe('none')
+    expect(onReorder).not.toHaveBeenCalled()
+  })
+
+  it('should ask canDrop about the index clamped to the list', () => {
+    const canDrop = vi.fn(() => true)
+
+    dragOver(9, 45, canDrop) // bottom half of the last row
+
+    expect(canDrop).toHaveBeenNthCalledWith(1, 0, 9)
+  })
+})
+
+describe('dragToReorder created again for the same kernel', () => {
+  it('should carry a drag in progress over to the replacement and finish it there', () => {
+    vi.useFakeTimers()
+    const kernel = createMockKernel()
+    const onReorder = vi.fn()
+    const onDragEnd = vi.fn()
+    const first = dragToReorder({ onReorder, onDragEnd })
+    first.install?.(kernel)
+    first.api?.getDragHandleProps(0).onDragStart(createDragEvent('dragstart'))
+    first.uninstall?.()
+    expect(first.api?.isDragging()).toBe(false)
+
+    const second = dragToReorder({ onReorder, onDragEnd })
+    second.install?.(kernel)
+    const over = createDragEvent('dragover', { clientY: 10 })
+    second.api?.getDragHandleProps(3).onDragOver(over)
+    second.api?.getDragHandleProps(3).onDrop(createDragEvent('drop'))
+
+    expect(second.api?.getDraggedIndex()).toBeNull()
+    expect(over.preventDefault).toHaveBeenCalled()
+    expect(onReorder).toHaveBeenCalledOnce()
+    expect(onReorder).toHaveBeenCalledWith(0, 2)
+    expect(onDragEnd).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
+  })
+
+  it('should not bring a finished, cancelled or other kernel drag back', () => {
+    const kernel = createMockKernel()
+    const first = dragToReorder({ onReorder: vi.fn() })
+    first.install?.(kernel)
+    first.api?.getDragHandleProps(1).onDragStart(createDragEvent('dragstart'))
+    const other = dragToReorder({ onReorder: vi.fn() })
+    other.install?.(createMockKernel())
+    first.api?.cancelDrag()
+    first.uninstall?.()
+    const second = dragToReorder({ onReorder: vi.fn() })
+    second.install?.(kernel)
+
+    expect(other.api?.isDragging()).toBe(false)
+    expect(second.api?.isDragging()).toBe(false)
   })
 })

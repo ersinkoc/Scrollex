@@ -126,10 +126,15 @@ export class EventBus {
   private dispatchEvent(event: KernelEvent): void {
     const eventType = event.type as EventType
 
+    // Same snapshot rule as for regular handlers: a once handler added during dispatch waits for the next event
+    const onceSnapshot = Array.from(this.onceHandlers.get(eventType) ?? [])
+
     // Regular handlers
     const handlers = this.handlers.get(eventType)
     if (handlers) {
-      for (const handler of handlers) {
+      // Snapshot: handlers added during dispatch wait for the next event
+      for (const handler of Array.from(handlers)) {
+        if (!handlers.has(handler)) continue
         try {
           handler(event)
         } catch (error) {
@@ -138,22 +143,18 @@ export class EventBus {
       }
     }
 
-    // Once handlers - remove after calling
-    const onceHandlers = this.onceHandlers.get(eventType)
-    if (onceHandlers) {
-      const handlersToCall = Array.from(onceHandlers)
-      onceHandlers.clear()
-
-      for (const handler of handlersToCall) {
-        try {
-          handler(event)
-        } catch (error) {
-          console.error(`[Scrollex] Error in once handler for "${eventType}":`, error)
-        }
-      }
-
+    // Once handlers - remove after calling (skip one removed since the snapshot)
+    for (const handler of onceSnapshot) {
+      const onceHandlers = this.onceHandlers.get(eventType)
+      if (!onceHandlers || !onceHandlers.delete(handler)) continue
       if (onceHandlers.size === 0) {
         this.onceHandlers.delete(eventType)
+      }
+
+      try {
+        handler(event)
+      } catch (error) {
+        console.error(`[Scrollex] Error in once handler for "${eventType}":`, error)
       }
     }
   }

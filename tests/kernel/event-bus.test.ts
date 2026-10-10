@@ -323,3 +323,39 @@ describe('EventBus', () => {
     })
   })
 })
+
+describe('EventBus once handlers during dispatch', () => {
+  it('should leave a once handler added during dispatch for the next event', () => {
+    const bus = new EventBus()
+    const added = vi.fn()
+    bus.on('scroll', () => bus.once('scroll', added))
+    bus.emit(createScrollEvent())
+    expect(added).not.toHaveBeenCalled()
+    bus.emit(createScrollEvent())
+    expect(added).toHaveBeenCalledTimes(1)
+  })
+
+  it('should skip a once handler removed by an earlier once handler', () => {
+    const bus = new EventBus()
+    const second = vi.fn()
+    bus.once('scroll', () => bus.off('scroll', second))
+    bus.once('scroll', second)
+    bus.emit(createScrollEvent())
+    expect(second).not.toHaveBeenCalled()
+  })
+
+  it('should still fire each once handler exactly once and keep isolating errors', () => {
+    const bus = new EventBus()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const a = vi.fn(() => { throw new Error('boom') })
+    const b = vi.fn()
+    bus.once('scroll', a)
+    bus.once('scroll', b)
+    bus.emit(createScrollEvent())
+    bus.emit(createScrollEvent())
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledTimes(1)
+    expect(bus.hasHandlers('scroll')).toBe(false)
+    spy.mockRestore()
+  })
+})

@@ -115,7 +115,7 @@ describe('stickyHeaders', () => {
   })
 
   describe('getCurrentStickyHeader', () => {
-    it('should return null initially', () => {
+    it('should reflect the current scroll position initially', () => {
       const plugin = stickyHeaders({
         headerHeight: 40,
         isHeader,
@@ -124,7 +124,41 @@ describe('stickyHeaders', () => {
 
       plugin.install?.(kernel)
 
-      expect(plugin.api?.getCurrentStickyHeader()).toBeNull()
+      // Same answer a scroll event at scrollTop 0 gives: the first header is at offset 0
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(0)
+    })
+
+    it('should derive the sticky header when installed while scrolled', () => {
+      vi.mocked(kernel.getScrollPosition).mockReturnValue({ scrollTop: 170, scrollLeft: 0 })
+      const plugin = stickyHeaders({
+        headerHeight: 40,
+        isHeader,
+        getGroupId,
+      })
+
+      plugin.install?.(kernel)
+
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(3)
+    })
+
+    it('should recompute the sticky header when the items change', () => {
+      vi.mocked(kernel.getScrollPosition).mockReturnValue({ scrollTop: 170, scrollLeft: 0 })
+      let headers = [0, 3, 6]
+      const plugin = stickyHeaders({
+        headerHeight: 40,
+        isHeader: (index) => headers.includes(index),
+        getGroupId,
+      })
+      plugin.install?.(kernel)
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(3)
+
+      headers = [0, 2, 6]
+      plugin.hooks?.onItemsChange?.(8, 8)
+
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(2)
+      headers = [0, 1, 6]
+      plugin.hooks?.onItemsChange?.(8, 8)
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(1)
     })
 
     it('should update on scroll', () => {

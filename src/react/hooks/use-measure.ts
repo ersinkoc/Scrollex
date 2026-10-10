@@ -1,4 +1,4 @@
-import { useCallback, useRef, useEffect } from 'react'
+import { useCallback, useRef, useEffect, useState } from 'react'
 
 /**
  * Options for useMeasure hook.
@@ -20,6 +20,18 @@ export interface UseMeasureReturn {
   width: number
   /** Current height */
   height: number
+}
+
+/**
+ * The size an observer entry reports. The first reading of an element is its border box (getBoundingClientRect),
+ * so later reports use the border box as well: contentRect leaves out padding and border and the value would jump.
+ */
+function boxOf(entry: ResizeObserverEntry): { width: number; height: number } {
+  const borderBox = entry.borderBoxSize?.[0]
+  if (borderBox && (borderBox.inlineSize > 0 || borderBox.blockSize > 0)) {
+    return { width: borderBox.inlineSize, height: borderBox.blockSize }
+  }
+  return { width: entry.contentRect.width, height: entry.contentRect.height }
 }
 
 /**
@@ -47,14 +59,21 @@ export function useMeasure(options: UseMeasureOptions = {}): UseMeasureReturn {
 
   const elementRef = useRef<HTMLElement | null>(null)
   const observerRef = useRef<ResizeObserver | null>(null)
-  const dimensionsRef = useRef({ width: 0, height: 0 })
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Latest onResize; read via ref so an inline callback does not re-create the observer each render
+  const onResizeRef = useRef(onResize)
+  onResizeRef.current = onResize
 
   // Handle resize
   const handleResize = useCallback(
     (width: number, height: number) => {
-      dimensionsRef.current = { width, height }
+      setDimensions((previous) =>
+        previous.width === width && previous.height === height ? previous : { width, height }
+      )
 
+      const onResize = onResizeRef.current
       if (onResize) {
         if (debounce > 0) {
           if (debounceTimerRef.current) {
@@ -68,20 +87,24 @@ export function useMeasure(options: UseMeasureOptions = {}): UseMeasureReturn {
         }
       }
     },
-    [onResize, debounce]
+    [debounce]
   )
 
   // Create observer
   useEffect(() => {
     observerRef.current = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const { width, height } = entry.contentRect
+        const { width, height } = boxOf(entry)
         handleResize(width, height)
       }
     })
 
-    // Observe current element if exists
+    // Observe current element if exists: on the first commit the ref callback ran before this effect created the
+    // observer, so it neither observed nor measured the element
     if (elementRef.current) {
+      // (measured before observing: a report delivered on observe() is newer than this first reading)
+      const rect = elementRef.current.getBoundingClientRect()
+      handleResize(rect.width, rect.height)
       observerRef.current.observe(elementRef.current)
     }
 
@@ -114,8 +137,8 @@ export function useMeasure(options: UseMeasureOptions = {}): UseMeasureReturn {
 
   return {
     measureRef,
-    width: dimensionsRef.current.width,
-    height: dimensionsRef.current.height,
+    width: dimensions.width,
+    height: dimensions.height,
   }
 }
 
@@ -127,6 +150,7 @@ export function useMeasure(options: UseMeasureOptions = {}): UseMeasureReturn {
  */
 export function useMeasureMany() {
   const elementsRef = useRef<Map<string | number, HTMLElement>>(new Map())
+  const keysRef = useRef<WeakMap<Element, string | number>>(new WeakMap())
   const observerRef = useRef<ResizeObserver | null>(null)
   const measurementsRef = useRef<Map<string | number, { width: number; height: number }>>(new Map())
   const callbackRef = useRef<((key: string | number, width: number, height: number) => void) | null>(null)
@@ -136,15 +160,22 @@ export function useMeasureMany() {
     observerRef.current = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const element = entry.target as HTMLElement
-        const key = element.dataset['measureKey']
+        // The data attribute marks the element as measured; the original key (number or string) comes from the map
+        const key = element.dataset['measureKey'] !== undefined ? keysRef.current.get(element) : undefined
 
         if (key !== undefined) {
-          const { width, height } = entry.contentRect
+          const { width, height } = boxOf(entry)
           measurementsRef.current.set(key, { width, height })
           callbackRef.current?.(key, width, height)
         }
       }
     })
+
+    // Ref callbacks of the first commit run before this effect (and again after a StrictMode
+    // re-run), when there was no observer yet: observe what is already registered
+    for (const element of elementsRef.current.values()) {
+      observerRef.current.observe(element)
+    }
 
     return () => {
       observerRef.current?.disconnect()
@@ -164,11 +195,13 @@ export function useMeasureMany() {
       if (oldElement && oldElement !== element) {
         observer?.unobserve(oldElement)
         elements.delete(key)
+        keysRef.current.delete(oldElement)
       }
 
       // Observe new element
       if (element) {
         element.dataset['measureKey'] = String(key)
+        keysRef.current.set(element, key)
         elements.set(key, element)
         observer?.observe(element)
 

@@ -125,7 +125,7 @@ export function getScrollDirection(
   const deltaX = current.scrollLeft - previous.scrollLeft
 
   // Prioritize vertical direction
-  if (Math.abs(deltaY) > Math.abs(deltaX)) {
+  if (Math.abs(deltaY) >= Math.abs(deltaX)) {
     if (deltaY > 0) return 'down'
     if (deltaY < 0) return 'up'
   } else {

@@ -8,6 +8,9 @@ import type {
   ScrollToIndexOptions,
 } from '../../types.js'
 import { createKernel } from '../../kernel/kernel.js'
+import { normalizeColumnCount, normalizeOverscan } from '../../utils/array.js'
+import { getContentWidth } from '../../utils/rect.js'
+import { getItemsRange } from './items-range.js'
 
 /**
  * Hook for virtualizing a masonry layout.
@@ -64,11 +67,17 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
   const {
     count,
     columns,
+    minColumnWidth = 200,
     getItemHeight,
     gap = 0,
     overscan = 5,
+    initialOffset = 0,
+    getItemKey = (index) => index,
     containerRef,
   } = options
+
+  const gapX = typeof gap === 'number' ? gap : gap.x
+  const gapY = typeof gap === 'number' ? gap : gap.y
 
   // Create kernel
   const kernelRef = useRef(
@@ -90,6 +99,7 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     overscanStartIndex: 0,
     overscanEndIndex: 0,
   })
+  const [columnCount, setColumnCount] = useState(typeof columns === 'number' ? normalizeColumnCount(columns) : 1)
   const [columnWidth, setColumnWidth] = useState(0)
   const [columnHeights, setColumnHeights] = useState<number[]>([])
   const [totalSize, setTotalSize] = useState(0)
@@ -97,12 +107,26 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
   // Layout cache
   const layoutCacheRef = useRef<Map<number, { top: number; lane: number; height: number }>>(new Map())
 
+  // Latest getItemHeight; read via ref so a new callback identity does not re-run layout effects
+  const getItemHeightRef = useRef(getItemHeight)
+  getItemHeightRef.current = getItemHeight
+
+  // Latest getItemKey: callers close over their current data
+  const getItemKeyRef = useRef(getItemKey)
+  getItemKeyRef.current = getItemKey
+
+  // The initial offset applies once, not every time the layout effect re-runs
+  const initialOffsetAppliedRef = useRef(false)
+
   const kernel = kernelRef.current
 
   /**
    * Calculate masonry layout.
    */
   const calculateLayout = useCallback((containerWidth: number) => {
+    // Plugins run on this kernel: it needs the item count (it is not otherwise told)
+    kernel.configure({ itemCount: count })
+
     if (containerWidth === 0 || count === 0) {
       setVirtualItems([])
       setColumnHeights([])
@@ -110,35 +134,44 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
       return
     }
 
-    const newColumnWidth = (containerWidth - (columns - 1) * gap) / columns
+    const columnTotal = columns === 'auto'
+      ? Math.max(1, Math.floor((containerWidth + gapX) / (minColumnWidth + gapX)))
+      : normalizeColumnCount(columns)
+    const newColumnWidth = (containerWidth - (columnTotal - 1) * gapX) / columnTotal
+    setColumnCount(columnTotal)
     setColumnWidth(newColumnWidth)
 
     // Reset column heights
-    const heights = new Array(columns).fill(0)
+    const heights = new Array(columnTotal).fill(0)
     const cache = new Map<number, { top: number; lane: number; height: number }>()
 
     // Place each item in the shortest column
     for (let i = 0; i < count; i++) {
       // Find shortest column
       let shortestCol = 0
-      for (let j = 1; j < columns; j++) {
+      for (let j = 1; j < columnTotal; j++) {
         if ((heights[j] ?? 0) < (heights[shortestCol] ?? 0)) {
           shortestCol = j
         }
       }
 
-      const itemHeight = getItemHeight(i, newColumnWidth)
+      // (a height that is not a finite non-negative number would poison the column heights and the total size)
+      const measured = getItemHeightRef.current(i, newColumnWidth)
+      const itemHeight = Number.isFinite(measured) && measured > 0 ? measured : 0
       const top = heights[shortestCol] ?? 0
 
       cache.set(i, { top, lane: shortestCol, height: itemHeight })
 
-      heights[shortestCol] = top + itemHeight + gap
+      heights[shortestCol] = top + itemHeight + gapY
     }
 
     layoutCacheRef.current = cache
     setColumnHeights(heights)
-    setTotalSize(Math.max(...heights) - gap)
-  }, [count, columns, gap, getItemHeight])
+    const total = Math.max(...heights) - gapY
+    setTotalSize(total)
+    // ... and a total size that matches the layout (the kernel does not know the columns)
+    kernel.configure({ estimatedItemHeight: total / count })
+  }, [kernel, count, columns, minColumnWidth, gapX, gapY])
 
   /**
    * Get visible items based on scroll position.
@@ -146,7 +179,7 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
   const getVisibleItems = useCallback((scrollTop: number, viewportHeight: number): VirtualItem[] => {
     const cache = layoutCacheRef.current
     const items: VirtualItem[] = []
-    const overscanAmount = overscan * 100 // Rough estimate per item
+    const overscanAmount = normalizeOverscan(overscan) * 100 // Rough estimate per item
 
     const viewStart = Math.max(0, scrollTop - overscanAmount)
     const viewEnd = scrollTop + viewportHeight + overscanAmount
@@ -161,7 +194,7 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
       if (itemEnd >= viewStart && layout.top <= viewEnd) {
         items.push({
           index: i,
-          key: i,
+          key: getItemKeyRef.current(i),
           start: layout.top,
           end: itemEnd,
           size: layout.height,
@@ -172,6 +205,15 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
 
     return items
   }, [count, overscan])
+
+  /**
+   * Publish visible items and the range they cover.
+   */
+  const updateVisibleItems = useCallback((scrollTop: number, viewportHeight: number) => {
+    const items = getVisibleItems(scrollTop, viewportHeight)
+    setVirtualItems(items)
+    setRange(getItemsRange(items, scrollTop, viewportHeight))
+  }, [getVisibleItems])
 
   // Initialize
   useEffect(() => {
@@ -191,28 +233,38 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     }
   }, [kernel])
 
-  // Attach to container
+  // Attach the kernel to the container once; a new layout callback must not detach it (that would cancel a running scroll animation)
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     kernel.attach(container)
 
+    return () => {
+      kernel.detach()
+    }
+  }, [containerRef, kernel])
+
+  // Layout, scroll and resize handling; re-subscribes when the layout inputs change
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
     // Calculate initial layout
-    calculateLayout(container.clientWidth)
+    calculateLayout(getContentWidth(container))
 
     // Handle scroll
     const handleScroll = () => {
       const scrollTop = container.scrollTop
       setScrollOffset(scrollTop)
-      setVirtualItems(getVisibleItems(scrollTop, container.clientHeight))
+      updateVisibleItems(scrollTop, container.clientHeight)
     }
 
     // Handle resize
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         calculateLayout(entry.contentRect.width)
-        setVirtualItems(getVisibleItems(container.scrollTop, entry.contentRect.height))
+        updateVisibleItems(container.scrollTop, entry.contentRect.height)
       }
     })
 
@@ -225,18 +277,27 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     return () => {
       container.removeEventListener('scroll', handleScroll)
       resizeObserver.disconnect()
-      kernel.detach()
     }
-  }, [containerRef, kernel, calculateLayout, getVisibleItems])
+  }, [containerRef, kernel, calculateLayout, updateVisibleItems])
+
+  // The initial offset is applied once, as soon as the content has a height (a browser clamps scrollTop to the
+  // scrollable range, so applying it before the layout ran would lose it). The first mount only: a later change
+  // of the value must not move the reader; a value that only becomes known after mount (a restored one) counts.
+  useEffect(() => {
+    if (initialOffset > 0 && totalSize > 0 && !initialOffsetAppliedRef.current && containerRef.current) {
+      initialOffsetAppliedRef.current = true
+      kernel.scrollTo(initialOffset)
+    }
+  }, [initialOffset, totalSize, kernel, containerRef])
 
   // Update layout when count changes
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
-    calculateLayout(container.clientWidth)
-    setVirtualItems(getVisibleItems(container.scrollTop, container.clientHeight))
-  }, [count, containerRef, calculateLayout, getVisibleItems])
+    calculateLayout(getContentWidth(container))
+    updateVisibleItems(container.scrollTop, container.clientHeight)
+  }, [count, containerRef, calculateLayout, updateVisibleItems])
 
   // Scroll methods
   const scrollTo = useCallback(
@@ -247,13 +308,44 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
   )
 
   const scrollToIndex = useCallback(
-    (index: number, _scrollOptions?: ScrollToIndexOptions) => {
+    (index: number, scrollOptions: ScrollToIndexOptions = {}) => {
       const layout = layoutCacheRef.current.get(index)
-      if (layout) {
-        kernel.scrollTo(layout.top)
+      const container = containerRef.current
+      if (!layout || !container) return
+
+      const { align = 'auto', offset: additionalOffset = 0, ...options } = scrollOptions
+      const viewportHeight = container.clientHeight
+      const itemEnd = layout.top + layout.height
+      let targetOffset: number
+
+      switch (align) {
+        case 'start':
+          targetOffset = layout.top
+          break
+        case 'center':
+          targetOffset = layout.top - viewportHeight / 2 + layout.height / 2
+          break
+        case 'end':
+          targetOffset = itemEnd - viewportHeight
+          break
+        case 'auto':
+        default: {
+          const visibleStart = container.scrollTop
+          if (layout.top < visibleStart) {
+            targetOffset = layout.top
+          } else if (itemEnd > visibleStart + viewportHeight) {
+            targetOffset = itemEnd - viewportHeight
+          } else {
+            return
+          }
+          break
+        }
       }
+
+      const maxScroll = Math.max(0, container.scrollHeight - viewportHeight)
+      kernel.scrollTo(Math.max(0, Math.min(targetOffset + additionalOffset, maxScroll)), options)
     },
-    [kernel]
+    [kernel, containerRef]
   )
 
   const measureElement = useCallback(
@@ -274,19 +366,27 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     // Trigger recalculation
     const container = containerRef.current
     if (container) {
-      calculateLayout(container.clientWidth)
+      calculateLayout(getContentWidth(container))
+      updateVisibleItems(container.scrollTop, container.clientHeight)
     }
-  }, [containerRef, calculateLayout])
+  }, [containerRef, calculateLayout, updateVisibleItems])
 
   const invalidateAllMeasurements = useCallback(() => {
     const container = containerRef.current
     if (container) {
-      calculateLayout(container.clientWidth)
+      calculateLayout(getContentWidth(container))
+      updateVisibleItems(container.scrollTop, container.clientHeight)
     }
-  }, [containerRef, calculateLayout])
+  }, [containerRef, calculateLayout, updateVisibleItems])
+
+  // The state is refreshed in an effect after the count changed: never hand out items beyond the data
+  const currentItems = useMemo(
+    () => (virtualItems.some((item) => item.index >= count) ? virtualItems.filter((item) => item.index < count) : virtualItems),
+    [virtualItems, count]
+  )
 
   return {
-    virtualItems,
+    virtualItems: currentItems,
     totalSize,
     scrollOffset,
     isScrolling,
@@ -297,7 +397,8 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     getMeasurement,
     invalidateMeasurement,
     invalidateAllMeasurements,
-    columnCount: columns,
+    kernel,
+    columnCount,
     columnWidth,
     columnHeights,
   }

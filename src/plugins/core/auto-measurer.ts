@@ -42,7 +42,7 @@ export interface AutoMeasurerAPI {
  */
 export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
   const {
-    estimatedItemHeight = 50,
+    estimatedItemHeight,
     measureOnResize = true,
     debounceMs = 100,
   } = options
@@ -50,9 +50,16 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
   let kernel: Kernel | null = null
   let resizeObserver: ResizeObserver | null = null
   const observedElements = new WeakMap<Element, number>()
-  const elementsByIndex = new Map<number, WeakRef<HTMLElement>>()
+  const elementsByIndex = new Map<number, { deref(): HTMLElement | undefined }>()
   let measureQueue = new Set<number>()
   let flushScheduled = false
+
+  /**
+   * The size of an element along the list's own axis (width in a horizontal list).
+   */
+  function sizeAlongAxis(rect: DOMRect): number {
+    return kernel?.getOptions().direction === 'horizontal' ? rect.width : rect.height
+  }
 
   /**
    * Create debounced flush function.
@@ -83,7 +90,7 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
 
       if (element) {
         const rect = element.getBoundingClientRect()
-        measurements.push({ index, height: rect.height })
+        measurements.push({ index, height: sizeAlongAxis(rect) })
       }
     }
 
@@ -127,7 +134,7 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
   const api: AutoMeasurerAPI = {
     measureElement(index: number, element: HTMLElement): number {
       const rect = element.getBoundingClientRect()
-      const height = rect.height
+      const height = sizeAlongAxis(rect)
 
       if (height > 0 && kernel) {
         kernel.measureItem(index, height)
@@ -164,22 +171,21 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
     },
 
     observe(index: number, element: HTMLElement): void {
-      if (!resizeObserver) return
-
       // Clean up any previous element at this index
       const existingRef = elementsByIndex.get(index)
       const existingElement = existingRef?.deref()
       if (existingElement && existingElement !== element) {
-        resizeObserver.unobserve(existingElement)
+        resizeObserver?.unobserve(existingElement)
         observedElements.delete(existingElement)
       }
 
       // Store the new element
       observedElements.set(element, index)
-      elementsByIndex.set(index, new WeakRef(element))
+      // WeakRef is missing in the oldest supported browsers (Chrome < 84, Firefox < 79, Safari < 14.1): hold the element
+      elementsByIndex.set(index, typeof WeakRef === 'function' ? new WeakRef(element) : { deref: () => element })
 
-      // Start observing
-      resizeObserver.observe(element)
+      // Start observing (without an observer - measureOnResize off - the element is still measured once)
+      resizeObserver?.observe(element)
 
       // Initial measurement
       measureQueue.add(index)
@@ -187,11 +193,9 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
     },
 
     unobserve(element: HTMLElement): void {
-      if (!resizeObserver) return
-
       const index = observedElements.get(element)
       if (index !== undefined) {
-        resizeObserver.unobserve(element)
+        resizeObserver?.unobserve(element)
         observedElements.delete(element)
         elementsByIndex.delete(index)
         measureQueue.delete(index)
@@ -207,8 +211,10 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
     install(k: Kernel): void {
       kernel = k
 
-      // Set estimated height
-      kernel.configure({ estimatedItemHeight })
+      // Set estimated height only when asked to; otherwise keep the kernel's own
+      if (estimatedItemHeight !== undefined) {
+        kernel.configure({ estimatedItemHeight })
+      }
 
       // Create ResizeObserver for dynamic measurement
       if (measureOnResize && typeof ResizeObserver !== 'undefined') {

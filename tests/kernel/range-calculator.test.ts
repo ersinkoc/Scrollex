@@ -34,11 +34,10 @@ describe('RangeCalculator', () => {
       })
 
       // Scroll position 0, viewport 200px (4 items)
-      // Implementation uses exclusive end index
       const range = calc.getVisibleRange(0, 200)
 
       expect(range.startIndex).toBe(0)
-      expect(range.endIndex).toBe(4) // exclusive: items 0,1,2,3
+      expect(range.endIndex).toBe(3) // inclusive: items 0,1,2,3
     })
 
     it('should include overscan items', () => {
@@ -51,11 +50,10 @@ describe('RangeCalculator', () => {
       const range = calc.getVisibleRange(200, 200)
 
       // Visible: items 4-7 (scroll 200, viewport 200, item size 50)
-      // Implementation uses exclusive end indices
       expect(range.startIndex).toBe(4)
-      expect(range.endIndex).toBe(8) // exclusive: items 4,5,6,7
+      expect(range.endIndex).toBe(7) // inclusive: items 4,5,6,7
       expect(range.overscanStartIndex).toBe(2)
-      expect(range.overscanEndIndex).toBe(10) // exclusive
+      expect(range.overscanEndIndex).toBe(9)
     })
 
     it('should not exceed item count bounds', () => {
@@ -241,7 +239,7 @@ describe('RangeCalculator', () => {
       expect(calc.setItemHeight(0, 150)).toBe(100)
     })
 
-    it('should invalidate offset cache from that index', () => {
+    it('should invalidate offset cache when the estimate changes', () => {
       const calc = new RangeCalculator({
         itemCount: 10,
         estimatedItemHeight: 100,
@@ -254,12 +252,43 @@ describe('RangeCalculator', () => {
       // Change height of item 2
       calc.setItemHeight(2, 200)
 
-      // After measuring item 2 as 200:
-      // - Items 0,1 keep their old cached offsets (built with estimate 100)
-      // - Items 2+ are rebuilt with new avg estimate of 200
-      // Offset for item 5: cached[1] (100) + size(1) (200) = 300 for item 2
-      // Then: 300 + 200 + 200 + 200 = 900 for item 5
-      expect(calc.getItemOffset(5)).toBe(900)
+      // The average of the measured items (200) now sizes every unmeasured item, before and after
+      // item 2, so items 0..4 are 200 each and offsets stay contiguous: 5 * 200
+      expect(calc.getItemOffset(5)).toBe(1000)
+      expect(calc.getItemOffset(1)).toBe(200)
+    })
+
+    it('should keep earlier offsets when the estimate does not change', () => {
+      const calc = new RangeCalculator({
+        itemCount: 10,
+        estimatedItemHeight: 100,
+        overscan: 0,
+      })
+      calc.setItemHeight(0, 100)
+      expect(calc.getItemOffset(5)).toBe(500)
+
+      // Measuring at the current estimate changes nothing before the index
+      calc.setItemHeight(2, 100)
+      expect(calc.getItemOffset(1)).toBe(100)
+      expect(calc.getItemOffset(5)).toBe(500)
+
+      // A different height for a measured item shifts what follows it only
+      calc.setItemHeight(0, 100)
+      calc.invalidate(2)
+      expect(calc.getItemOffset(5)).toBe(500)
+    })
+
+    it('should keep offsets contiguous after measurements in any order', () => {
+      const calc = new RangeCalculator({ itemCount: 30, estimatedItemHeight: 50, overscan: 0 })
+      calc.getTotalSize()
+      for (const [index, height] of [[20, 200], [3, 30], [29, 90], [10, 70], [0, 120]] as const) {
+        calc.setItemHeight(index, height)
+      }
+      calc.invalidate(20)
+
+      for (let i = 1; i < calc.getItemCount(); i++) {
+        expect(calc.getItemOffset(i)).toBeCloseTo(calc.getItemOffset(i - 1) + calc.getItemSize(i - 1), 9)
+      }
     })
   })
 
@@ -494,5 +523,156 @@ describe('RangeCalculator', () => {
       expect(cache).toBeDefined()
       expect(cache.getEstimatedHeight()).toBe(50)
     })
+  })
+})
+
+describe('RangeCalculator when the item count shrinks', () => {
+  it('should drop the measurements of the removed items and size the rest from what is left', () => {
+    const calc = new RangeCalculator({ itemCount: 100, estimatedItemHeight: 50, overscan: 0 })
+    for (let i = 90; i < 100; i++) calc.setItemHeight(i, 200)
+
+    calc.setItemCount(20)
+
+    expect(calc.getTotalSize()).toBe(1000)
+    expect(calc.getMeasurementCache().getMeasuredCount()).toBe(0)
+  })
+
+  it('should not bring the measurements back when the list grows again', () => {
+    const calc = new RangeCalculator({ itemCount: 100, estimatedItemHeight: 50, overscan: 0 })
+    calc.setItemHeight(95, 200)
+
+    calc.setItemCount(20)
+    calc.setItemCount(100)
+
+    expect(calc.getCachedHeight(95)).toBeUndefined()
+    expect(calc.getTotalSize()).toBe(5000)
+  })
+
+  it('should keep the measurements below the new count and follow the new average', () => {
+    const calc = new RangeCalculator({ itemCount: 100, estimatedItemHeight: 50, overscan: 0 })
+    calc.setItemHeight(2, 100)
+    calc.setItemHeight(5, 300)
+    for (let i = 60; i < 70; i++) calc.setItemHeight(i, 1000)
+
+    calc.setItemCount(10)
+
+    expect(calc.getCachedHeight(2)).toBe(100)
+    expect(calc.getCachedHeight(5)).toBe(300)
+    expect(calc.getTotalSize()).toBe(100 + 300 + 8 * 200)
+  })
+
+  it('should handle shrinking to nothing', () => {
+    const calc = new RangeCalculator({ itemCount: 30, estimatedItemHeight: 40, overscan: 0 })
+    calc.setItemHeight(29, 500)
+
+    calc.setItemCount(0)
+
+    expect(calc.getTotalSize()).toBe(0)
+    expect(calc.getCachedHeight(29)).toBeUndefined()
+  })
+})
+
+describe('RangeCalculator endIndex', () => {
+  it('should be the last item that is at least partly inside the viewport', () => {
+    const calc = new RangeCalculator({ itemCount: 100, estimatedItemHeight: 50, overscan: 0 })
+
+    expect(calc.getVisibleRange(0, 500).endIndex).toBe(9) // item 10 starts exactly at the edge
+    expect(calc.getVisibleRange(25, 500).endIndex).toBe(10)
+    expect(calc.getVisibleRange(4500, 500)).toMatchObject({ startIndex: 90, endIndex: 99 })
+  })
+
+  it('should match a brute-force search over mixed heights, offsets and viewport sizes', () => {
+    let seed = 7
+    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 }
+
+    for (let round = 0; round < 100; round++) {
+      const count = 1 + Math.floor(random() * 80)
+      const calc = new RangeCalculator({ itemCount: count, estimatedItemHeight: 30, overscan: 0 })
+      const heights: number[] = []
+      for (let i = 0; i < count; i++) { const h = 10 + Math.floor(random() * 90); heights.push(h); calc.setItemHeight(i, h) }
+      const starts = heights.map((_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0))
+      const total = starts[count - 1]! + heights[count - 1]!
+
+      for (let k = 0; k < 10; k++) {
+        const offset = Math.floor(random() * total)
+        const size = 1 + Math.floor(random() * 300)
+        const visible = heights.map((_, i) => i).filter((i) => starts[i]! + heights[i]! > offset && starts[i]! < offset + size)
+        const range = calc.getVisibleRange(offset, size)
+
+        expect([range.startIndex, range.endIndex]).toEqual([visible[0], visible[visible.length - 1]])
+      }
+    }
+  })
+
+  it('should put the overscan around the inclusive range', () => {
+    const calc = new RangeCalculator({ itemCount: 100, estimatedItemHeight: 50, overscan: 3 })
+
+    expect(calc.getVisibleRange(200, 200)).toEqual({ startIndex: 4, endIndex: 7, overscanStartIndex: 1, overscanEndIndex: 10 })
+  })
+})
+
+describe('RangeCalculator measurement cost and consistency', () => {
+  it('should not walk the whole list when an item is measured', () => {
+    const touched = (itemCount: number) => {
+      const calc = new RangeCalculator({ itemCount, estimatedItemHeight: 50, overscan: 5 })
+      calc.getTotalSize()
+      const cache = calc.getMeasurementCache()
+      const original = cache.getOrEstimate.bind(cache)
+      let lookups = 0
+      cache.getOrEstimate = (index: number) => { lookups++; return original(index) }
+      for (let i = 0; i < 20; i++) {
+        calc.setItemHeight(i, 40 + i)
+        calc.getVisibleRange(0, 600)
+        calc.getTotalSize()
+      }
+      return lookups
+    }
+
+    expect(touched(100_000)).toBeLessThanOrEqual(touched(10_000) * 2 + 1000)
+  })
+
+  it('should answer like a plain recomputation after random operations', () => {
+    let seed = 11
+    const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 }
+
+    for (let round = 0; round < 60; round++) {
+      let count = Math.floor(random() * 120)
+      const base = 20 + Math.floor(random() * 80)
+      const calc = new RangeCalculator({ itemCount: count, estimatedItemHeight: base, overscan: 0 })
+      const measured = new Map<number, number>()
+      let estimate = base
+
+      for (let step = 0; step < 40; step++) {
+        const op = random()
+        if (op < 0.5 && count > 0) {
+          const index = Math.floor(random() * count)
+          const height = 5 + Math.floor(random() * 150)
+          calc.setItemHeight(index, height)
+          measured.set(index, height)
+        } else if (op < 0.65 && count > 0) {
+          const index = Math.floor(random() * count)
+          calc.invalidate(index)
+          measured.delete(index)
+        } else if (op < 0.7) {
+          calc.invalidateAll()
+          measured.clear()
+        } else if (op < 0.9) {
+          count = Math.max(0, count + Math.floor((random() - 0.5) * 80))
+          calc.setItemCount(count)
+          for (const index of [...measured.keys()]) if (index >= count) measured.delete(index)
+        } else {
+          estimate = 10 + Math.floor(random() * 90)
+          calc.setEstimatedHeight(estimate)
+        }
+
+        const unmeasured = measured.size > 0 ? [...measured.values()].reduce((a, b) => a + b, 0) / measured.size : estimate
+        let offset = 0
+        for (let i = 0; i < count; i++) {
+          expect(calc.getItemOffset(i)).toBeCloseTo(offset, 6)
+          offset += measured.get(i) ?? unmeasured
+        }
+        expect(calc.getTotalSize()).toBeCloseTo(offset, 6)
+      }
+    }
   })
 })

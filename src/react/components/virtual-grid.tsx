@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useRef,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useCallback,
@@ -12,8 +13,9 @@ import type {
   GridRenderItemProps,
 } from '../../types.js'
 import { useVirtualGrid } from '../hooks/use-virtual-grid.js'
+import { useKernelPlugins } from '../hooks/use-kernel-plugins.js'
+import { useLoadMoreWhenShort } from '../hooks/use-load-more-when-short.js'
 import { ScrollexContext } from '../context.js'
-import { createKernel } from '../../kernel/kernel.js'
 
 /**
  * A virtualized grid component that efficiently renders large datasets in a grid layout.
@@ -105,9 +107,11 @@ function VirtualGridInner<T>(
     columnCount,
     columnWidth,
     rowCount,
+    kernel,
   } = useVirtualGrid({
     count: data.length,
-    columns: typeof columns === 'number' ? columns : 1, // TODO: handle auto
+    columns,
+    minColumnWidth,
     rowHeight: itemHeight,
     gap: { x: gapX, y: gapY },
     overscan,
@@ -116,13 +120,17 @@ function VirtualGridInner<T>(
     containerRef,
   })
 
-  // Create kernel for context
-  const kernelRef = useRef(createKernel({
-    itemCount: data.length,
-    estimatedItemHeight: itemHeight,
-    overscan,
-    direction: 'vertical',
-  }))
+  // Report range changes
+  useEffect(() => {
+    if (virtualItems.length === 0) return
+    onVisibleRangeChange?.(range)
+    onItemsRendered?.({
+      overscanStartIndex: range.overscanStartIndex,
+      overscanEndIndex: range.overscanEndIndex,
+      visibleStartIndex: range.startIndex,
+      visibleEndIndex: range.endIndex,
+    })
+  }, [range.startIndex, range.endIndex, range.overscanStartIndex, range.overscanEndIndex])
 
   // Imperative handle
   useImperativeHandle(ref, () => ({
@@ -176,10 +184,10 @@ function VirtualGridInner<T>(
   // Create render item props
   const createRenderProps = useCallback(
     (index: number, virtualItem: typeof virtualItems[0]): GridRenderItemProps<T> => {
-      const item = data[index]
-      if (item === undefined) {
-        throw new Error(`[Scrollex] Item at index ${index} is undefined`)
+      if (index >= data.length) {
+        throw new Error(`[Scrollex] Item at index ${index} is out of range`)
       }
+      const item = data[index] as T
 
       const columnIndex = virtualItem.lane
       const rowIndex = Math.floor(index / columnCount)
@@ -212,10 +220,16 @@ function VirtualGridInner<T>(
     [data, columnCount, columnWidth, gapX, itemStyle, range, isScrolling]
   )
 
+  // Install plugins from props on the live kernel
+  useKernelPlugins(kernel, plugins)
+
+  // A list that does not overflow can't fire a scroll event, so ask for more data after layout
+  useLoadMoreWhenShort(containerRef, { count: data.length, totalSize, hasMore, isLoading, threshold, onLoadMore })
+
   // Context value
   const contextValue = useMemo(() => ({
-    kernel: kernelRef.current,
-  }), [])
+    kernel,
+  }), [kernel])
 
   return (
     <ScrollexContext.Provider value={contextValue}>
@@ -237,8 +251,7 @@ function VirtualGridInner<T>(
         <div className={innerClassName} style={innerContainerStyles}>
           {virtualItems.map((virtualItem) => {
             const index = virtualItem.index
-            const item = data[index]
-            if (item === undefined) return null
+            if (index >= data.length) return null
 
             const rowIndex = Math.floor(index / columnCount)
             const columnIndex = virtualItem.lane

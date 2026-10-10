@@ -9,7 +9,8 @@ export function raf(callback: FrameRequestCallback): number {
   if (typeof requestAnimationFrame !== 'undefined') {
     return requestAnimationFrame(callback)
   }
-  return setTimeout(() => callback(Date.now()), 16) as unknown as number
+  // (same time base as requestAnimationFrame's timestamp and performance.now(), which animations compare it with)
+  return setTimeout(() => callback(performance.now()), 16) as unknown as number
 }
 
 /**

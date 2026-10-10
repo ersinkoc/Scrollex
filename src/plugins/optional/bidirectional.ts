@@ -10,7 +10,7 @@ export interface BidirectionalOptions {
   stickToBottom?: boolean
   /** Threshold in pixels from bottom to activate stick behavior */
   stickThreshold?: number
-  /** Maintain scroll position when items are prepended */
+  /** Declared, not implemented yet: call `adjustForPrepend` after prepending */
   maintainPositionOnPrepend?: boolean
   /** Callback when load more is triggered */
   onLoadMore?: (direction: 'forward' | 'backward') => void
@@ -39,6 +39,12 @@ export interface BidirectionalAPI {
 }
 
 /**
+ * Kernels whose initial position was already applied. A plugin passed inline is a new instance on every
+ * parent render and is re-installed on the same kernel; the initial position belongs to the first mount.
+ */
+const positionedKernels = new WeakSet<Kernel>()
+
+/**
  * Creates a bidirectional scroll plugin.
  * Ideal for chat applications with messages loaded in both directions.
  *
@@ -55,14 +61,13 @@ export interface BidirectionalAPI {
  *   plugins={[bidirectional({
  *     stickToBottom: true,
  *     initialPosition: 'bottom',
- *     maintainPositionOnPrepend: true,
+ *     onLoadMore: (direction) => {
+ *       if (direction === 'backward') loadOlderMessages()
+ *       if (direction === 'forward') loadNewerMessages()
+ *     },
  *   })]}
- *   onLoadMore={(direction) => {
- *     if (direction === 'backward') loadOlderMessages()
- *     if (direction === 'forward') loadNewerMessages()
- *   }}
- *   renderItem={({ item, measureRef }) => (
- *     <div ref={measureRef}>
+ *   renderItem={({ item, style, measureRef }) => (
+ *     <div ref={measureRef} style={style}>
  *       <Message message={item} />
  *     </div>
  *   )}
@@ -85,6 +90,21 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
   let previousItemCount = 0
   let previousTotalSize = 0
   let isInitialized = false
+  let initialFrame: number | null = null
+  // Load-more is edge-triggered: once per visit to a zone, re-armed when leaving it or when items change
+  let backwardTriggered = false
+  let forwardTriggered = false
+
+  /**
+   * The list's own axis: a horizontal list scrolls (and is measured) along x.
+   */
+  function isHorizontal(): boolean {
+    return kernel?.getOptions().direction === 'horizontal'
+  }
+
+  function getOffset(position: { scrollTop: number; scrollLeft: number }): number {
+    return isHorizontal() ? position.scrollLeft : position.scrollTop
+  }
 
   /**
    * Check if scroll is at bottom.
@@ -93,11 +113,10 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
     if (!kernel) return false
 
     const viewport = kernel.getViewport()
-    const scrollPosition = kernel.getScrollPosition()
     const totalSize = kernel.getTotalSize()
 
-    const maxScroll = totalSize - viewport.height
-    return scrollPosition.scrollTop >= maxScroll - stickThreshold
+    const maxScroll = totalSize - (isHorizontal() ? viewport.width : viewport.height)
+    return getOffset(kernel.getScrollPosition()) >= maxScroll - stickThreshold
   }
 
   /**
@@ -106,8 +125,7 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
   function checkIsAtTop(): boolean {
     if (!kernel) return false
 
-    const scrollPosition = kernel.getScrollPosition()
-    return scrollPosition.scrollTop <= stickThreshold
+    return getOffset(kernel.getScrollPosition()) <= stickThreshold
   }
 
   /**
@@ -125,16 +143,28 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
     if (onLoadMore) {
       const viewport = kernel.getViewport()
       const totalSize = kernel.getTotalSize()
+      const offset = getOffset(event)
+      const viewportSize = isHorizontal() ? viewport.width : viewport.height
 
       // Check top (backward loading)
-      if (event.scrollTop < loadMoreThreshold) {
-        onLoadMore('backward')
+      if (offset < loadMoreThreshold) {
+        if (!backwardTriggered) {
+          backwardTriggered = true
+          onLoadMore('backward')
+        }
+      } else {
+        backwardTriggered = false
       }
 
       // Check bottom (forward loading)
-      const distanceFromBottom = totalSize - event.scrollTop - viewport.height
+      const distanceFromBottom = totalSize - offset - viewportSize
       if (distanceFromBottom < loadMoreThreshold) {
-        onLoadMore('forward')
+        if (!forwardTriggered) {
+          forwardTriggered = true
+          onLoadMore('forward')
+        }
+      } else {
+        forwardTriggered = false
       }
     }
   }
@@ -143,6 +173,10 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
    * Handle items change.
    */
   function handleItemsChange(count: number, previousCount: number): void {
+    // New items arrived: a zone the scroll is still in may ask for more again
+    backwardTriggered = false
+    forwardTriggered = false
+
     if (!kernel || !isInitialized) return
 
     const newTotalSize = kernel.getTotalSize()
@@ -208,9 +242,10 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
       if (!kernel || prependedHeight <= 0) return
 
       const scrollPosition = kernel.getScrollPosition()
+      const horizontal = isHorizontal()
       kernel.setScrollPosition({
-        scrollTop: scrollPosition.scrollTop + prependedHeight,
-        scrollLeft: scrollPosition.scrollLeft,
+        scrollTop: scrollPosition.scrollTop + (horizontal ? 0 : prependedHeight),
+        scrollLeft: scrollPosition.scrollLeft + (horizontal ? prependedHeight : 0),
       })
     },
   }
@@ -225,11 +260,20 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
       previousItemCount = k.getItemCount()
       previousTotalSize = k.getTotalSize()
 
-      // Initial scroll position
-      if (initialPosition === 'bottom') {
-        requestAnimationFrame(() => {
+      // Sticking follows where the reader is: a list that is about to be scrolled to the bottom sticks, anything
+      // else only when it is at the bottom already (not a list that starts at the top, or a re-installed plugin
+      // whose reader scrolled away)
+      isSticking = stickToBottom && ((initialPosition === 'bottom' && !positionedKernels.has(k)) || checkIsAtBottom())
+
+      // Initial scroll position (once per kernel, not on every re-install)
+      if (initialPosition === 'bottom' && !positionedKernels.has(k)) {
+        initialFrame = requestAnimationFrame(() => {
+          initialFrame = null
           if (kernel) {
-            kernel.scrollTo(kernel.getTotalSize())
+            if (!positionedKernels.has(kernel)) {
+              positionedKernels.add(kernel)
+              kernel.scrollTo(kernel.getTotalSize())
+            }
             isInitialized = true
           }
         })
@@ -239,8 +283,14 @@ export function bidirectional(options: BidirectionalOptions = {}): Plugin {
     },
 
     uninstall(): void {
+      if (initialFrame !== null) {
+        cancelAnimationFrame(initialFrame)
+        initialFrame = null
+      }
       kernel = null
       isInitialized = false
+      backwardTriggered = false
+      forwardTriggered = false
     },
 
     hooks: {

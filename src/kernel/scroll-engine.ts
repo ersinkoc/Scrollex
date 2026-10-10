@@ -39,11 +39,15 @@ export class ScrollEngine {
   private container: HTMLElement | null = null
   private scrollPosition: ScrollPosition = { scrollTop: 0, scrollLeft: 0 }
   private previousScrollPosition: ScrollPosition = { scrollTop: 0, scrollLeft: 0 }
+  // The position the last scroll event reported (scrollPosition is also updated by programmatic scrolls, ahead of the
+  // event the browser fires for them, and a delta against it would always be 0)
+  private reportedPosition: ScrollPosition = { scrollTop: 0, scrollLeft: 0 }
   private scrolling = false
   private scrollDirection: ScrollDirection = 'none'
   private lastScrollTime = 0
   private scrollEndTimer: ReturnType<typeof setTimeout> | null = null
   private scrollEndDelay = 150
+  private horizontal = false
 
   // Animation state
   private animationId: number | null = null
@@ -73,6 +77,7 @@ export class ScrollEngine {
     this.container = container
     this.scrollPosition = getScrollPosition(container)
     this.previousScrollPosition = { ...this.scrollPosition }
+    this.reportedPosition = { ...this.scrollPosition }
 
     // Create throttled scroll handler
     this.throttledHandleScroll = throttleRAF(this.processScroll.bind(this))
@@ -86,6 +91,17 @@ export class ScrollEngine {
    * Detach from the current container.
    */
   detach(): void {
+    // Pair the pending scroll-start with a scroll-end; the end timer is cancelled below
+    if (this.scrolling) {
+      this.scrolling = false
+      this.onScrollEndCallback?.({
+        type: 'scroll-end',
+        scrollTop: this.scrollPosition.scrollTop,
+        scrollLeft: this.scrollPosition.scrollLeft,
+        timestamp: performance.now(),
+      })
+    }
+
     if (this.container && this.boundHandleScroll) {
       this.container.removeEventListener('scroll', this.boundHandleScroll)
     }
@@ -116,8 +132,9 @@ export class ScrollEngine {
     if (!this.container) return
 
     const now = performance.now()
-    this.previousScrollPosition = { ...this.scrollPosition }
+    this.previousScrollPosition = { ...this.reportedPosition }
     this.scrollPosition = getScrollPosition(this.container)
+    this.reportedPosition = { ...this.scrollPosition }
 
     // Calculate direction
     this.scrollDirection = getScrollDirection(this.scrollPosition, this.previousScrollPosition)
@@ -196,12 +213,14 @@ export class ScrollEngine {
 
     setScrollPosition(this.container, position)
 
-    // Update our cached position
+    // Update our cached position with what the container holds: it clamps the request to the scrollable
+    // range, and no scroll event follows when the clamped value equals the current one
+    const actual = getScrollPosition(this.container)
     if (position.scrollTop !== undefined) {
-      this.scrollPosition.scrollTop = position.scrollTop
+      this.scrollPosition.scrollTop = actual.scrollTop
     }
     if (position.scrollLeft !== undefined) {
-      this.scrollPosition.scrollLeft = position.scrollLeft
+      this.scrollPosition.scrollLeft = actual.scrollLeft
     }
   }
 
@@ -216,9 +235,10 @@ export class ScrollEngine {
 
     const { behavior = 'auto', duration = 300, easing = easings.easeInOut } = options
 
-    if (behavior === 'auto' || behavior === 'smooth' && duration === 0) {
+    // A zero, negative or NaN duration can't be animated (progress would never reach 1)
+    if (behavior === 'auto' || !(duration > 0)) {
       // Instant scroll
-      this.setScrollPosition({ scrollTop: offset })
+      this.setScrollPosition(this.horizontal ? { scrollLeft: offset } : { scrollTop: offset })
     } else {
       // Animated scroll
       this.animateScroll(offset, duration, easing)
@@ -235,21 +255,22 @@ export class ScrollEngine {
     }
 
     this.animationStartTime = performance.now()
-    this.animationStartOffset = this.scrollPosition.scrollTop
+    this.animationStartOffset = this.horizontal ? this.scrollPosition.scrollLeft : this.scrollPosition.scrollTop
     this.animationTargetOffset = targetOffset
     this.animationDuration = duration
     this.animationEasing = easing
 
     const animate = (currentTime: number): void => {
       const elapsed = currentTime - this.animationStartTime
-      const progress = Math.min(elapsed / this.animationDuration, 1)
+      // (a frame's timestamp is its start and can precede the performance.now() of the call that began the animation)
+      const progress = Math.max(0, Math.min(elapsed / this.animationDuration, 1))
       const easedProgress = this.animationEasing(progress)
 
       const currentOffset =
         this.animationStartOffset +
         (this.animationTargetOffset - this.animationStartOffset) * easedProgress
 
-      this.setScrollPosition({ scrollTop: currentOffset })
+      this.setScrollPosition(this.horizontal ? { scrollLeft: currentOffset } : { scrollTop: currentOffset })
 
       if (progress < 1) {
         this.animationId = raf(animate)
@@ -293,6 +314,15 @@ export class ScrollEngine {
    *
    * @param delay - Delay in ms
    */
+  /**
+   * Set the axis that scrollTo() and its animation drive.
+   *
+   * @param direction - Scroll direction
+   */
+  setDirection(direction: 'vertical' | 'horizontal'): void {
+    this.horizontal = direction === 'horizontal'
+  }
+
   setScrollEndDelay(delay: number): void {
     this.scrollEndDelay = delay
   }

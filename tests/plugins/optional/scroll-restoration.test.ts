@@ -1,4 +1,5 @@
 import { vi } from 'vitest'
+import { createKernel } from '../../../src/kernel/kernel.js'
 import { scrollRestoration } from '../../../src/plugins/optional/scroll-restoration.js'
 import type { Kernel, ScrollEvent } from '../../../src/types.js'
 
@@ -125,16 +126,71 @@ describe('scrollRestoration', () => {
       expect(kernel.scrollTo).not.toHaveBeenCalled()
     })
 
-    it('should save position on unmount by default', () => {
+    it('should save position on unmount by default', async () => {
       const plugin = scrollRestoration({
         key: 'test-list',
         saveOnUnmount: true,
       })
 
       plugin.install?.(kernel)
+      await vi.advanceTimersByTimeAsync(16) // let the mount restore run first
       plugin.uninstall?.()
 
       expect(mockStorage.setItem).toHaveBeenCalled()
+    })
+
+    it('should keep the saved position when uninstalled before the restore ran', async () => {
+      const saved = JSON.stringify({ scrollTop: 200, scrollLeft: 0, timestamp: Date.now() })
+      mockStorage.setItem('scrollex:test-list', saved)
+      vi.mocked(mockStorage.setItem).mockClear()
+
+      const plugin = scrollRestoration({ key: 'test-list' })
+      plugin.install?.(kernel)
+      plugin.uninstall?.()
+      await vi.advanceTimersByTimeAsync(16)
+
+      expect(mockStorage.setItem).not.toHaveBeenCalled()
+      expect(mockStorage.getItem('scrollex:test-list')).toBe(saved)
+      expect(kernel.scrollTo).not.toHaveBeenCalled()
+    })
+
+    it('should restore the saved position after an install, uninstall, install cycle', async () => {
+      mockStorage.setItem('scrollex:test-list', JSON.stringify({ scrollTop: 200, scrollLeft: 0, timestamp: Date.now() }))
+
+      const plugin = scrollRestoration({ key: 'test-list' })
+      plugin.install?.(kernel)
+      plugin.uninstall?.()
+      plugin.install?.(kernel)
+      await vi.advanceTimersByTimeAsync(16)
+
+      expect(kernel.scrollTo).toHaveBeenCalledTimes(1)
+      expect(kernel.scrollTo).toHaveBeenCalledWith(200)
+    })
+
+    it('should restore only once per kernel when the plugin is re-registered', async () => {
+      mockStorage.setItem('scrollex:test-list', JSON.stringify({ scrollTop: 200, scrollLeft: 0, timestamp: Date.now() }))
+
+      const first = scrollRestoration({ key: 'test-list', saveOnUnmount: false })
+      first.install?.(kernel)
+      await vi.advanceTimersByTimeAsync(16)
+      first.uninstall?.()
+
+      const second = scrollRestoration({ key: 'test-list', saveOnUnmount: false })
+      second.install?.(kernel)
+      await vi.advanceTimersByTimeAsync(16)
+
+      expect(kernel.scrollTo).toHaveBeenCalledTimes(1)
+    })
+
+    it('should restore scrollLeft for a horizontal kernel', async () => {
+      mockStorage.setItem('scrollex:test-list', JSON.stringify({ scrollTop: 0, scrollLeft: 300, timestamp: Date.now() }))
+      vi.mocked(kernel.getOptions).mockReturnValue({ direction: 'horizontal' } as ReturnType<Kernel['getOptions']>)
+
+      const plugin = scrollRestoration({ key: 'test-list' })
+      plugin.install?.(kernel)
+      await vi.advanceTimersByTimeAsync(16)
+
+      expect(kernel.scrollTo).toHaveBeenCalledWith(300)
     })
   })
 
@@ -457,5 +513,93 @@ describe('scrollRestoration', () => {
 
       expect(mockStorage.setItem).toHaveBeenCalled()
     })
+  })
+})
+
+describe('scrollRestoration key change on the same kernel', () => {
+  it('should restore the position of a new key but not repeat a restore for the same key', () => {
+    vi.useFakeTimers()
+    const storage = createMockStorage()
+    vi.stubGlobal('sessionStorage', storage)
+    storage.setItem('scrollex:A', JSON.stringify({ scrollTop: 120, scrollLeft: 0, timestamp: Date.now() }))
+    storage.setItem('scrollex:B', JSON.stringify({ scrollTop: 300, scrollLeft: 0, timestamp: Date.now() }))
+    const kernel = createMockKernel()
+    const restored = () => (kernel.scrollTo as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+
+    const a = scrollRestoration({ key: 'A' })
+    a.install(kernel)
+    vi.advanceTimersByTime(50)
+    a.uninstall()
+    const a2 = scrollRestoration({ key: 'A' })
+    a2.install(kernel)
+    vi.advanceTimersByTime(50)
+    expect(restored()).toEqual([120])
+
+    a2.uninstall()
+    const b = scrollRestoration({ key: 'B' })
+    b.install(kernel)
+    vi.advanceTimersByTime(50)
+    expect(restored()).toEqual([120, 300])
+    b.uninstall()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+})
+
+describe('scrollRestoration when the data arrives after mount', () => {
+  let frames: FrameRequestCallback[] = []
+  const realRaf = globalThis.requestAnimationFrame
+  const realCancel = globalThis.cancelAnimationFrame
+  beforeEach(() => {
+    frames = []
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { frames.push(cb); return frames.length }) as typeof requestAnimationFrame
+    globalThis.cancelAnimationFrame = ((id: number) => { frames[id - 1] = (() => {}) as FrameRequestCallback }) as typeof cancelAnimationFrame
+  })
+  afterEach(() => { globalThis.requestAnimationFrame = realRaf; globalThis.cancelAnimationFrame = realCancel })
+  const flush = () => { const f = frames.splice(0); f.forEach((cb) => cb(0)) }
+
+  function scenario(itemsAtMount: number) {
+    const store = new Map<string, string>([['scrollex:k', JSON.stringify({ scrollTop: 1000, scrollLeft: 0, timestamp: Date.now() })]])
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) }
+    let top = 0
+    const kernel = createKernel({ itemCount: itemsAtMount, estimatedItemHeight: 50, overscan: 0 })
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'scrollTop', { get: () => top, set: (v: number) => { top = Math.max(0, Math.min(v, Math.max(0, kernel.getTotalSize() - 400))) }, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+    Object.defineProperty(el, 'clientWidth', { get: () => 300, configurable: true })
+    kernel.attach(el)
+    const plugin = scrollRestoration({ key: 'k', storage })
+    kernel.register(plugin)
+    flush() // the restore frame
+    kernel.configure({ itemCount: 200 }) // the data arrives
+    flush()
+    const afterData = top
+    kernel.unregister('scroll-restoration') // unmount
+    const saved = (JSON.parse(store.get('scrollex:k')!) as { scrollTop: number }).scrollTop
+    kernel.destroy()
+    return { afterData, saved }
+  }
+
+  it('should restore once the list is long enough and keep the saved position until then', () => {
+    const control = scenario(200)
+    expect(control).toEqual({ afterData: 1000, saved: 1000 }) // content already there
+
+    const late = scenario(0)
+    expect(late).toEqual({ afterData: 1000, saved: 1000 })
+  })
+
+  it('should not overwrite the saved position when the list is unmounted before its data arrived', () => {
+    const store = new Map<string, string>([['scrollex:k', JSON.stringify({ scrollTop: 1000, scrollLeft: 0, timestamp: Date.now() })]])
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) }
+    const kernel = createKernel({ itemCount: 0, estimatedItemHeight: 50, overscan: 0 })
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+    Object.defineProperty(el, 'clientWidth', { get: () => 300, configurable: true })
+    kernel.attach(el)
+    kernel.register(scrollRestoration({ key: 'k', storage }))
+    flush()
+    kernel.unregister('scroll-restoration')
+    expect(JSON.parse(store.get('scrollex:k')!).scrollTop).toBe(1000)
+    kernel.destroy()
   })
 })

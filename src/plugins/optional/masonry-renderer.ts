@@ -1,4 +1,5 @@
 import type { Plugin, Kernel, VirtualItem, Viewport } from '../../types.js'
+import { normalizeColumnCount } from '../../utils/array.js'
 
 /**
  * Masonry renderer plugin options.
@@ -47,22 +48,21 @@ export interface MasonryRendererAPI {
  *
  * @example
  * ```tsx
+ * import { createKernel } from '@oxog/scrollex'
  * import { masonryRenderer } from '@oxog/scrollex/plugins'
  *
- * <VirtualMasonry
- *   data={images}
- *   plugins={[masonryRenderer({
- *     columns: 3,
- *     gap: 8,
- *     getItemHeight: (index, columnWidth) => {
- *       const item = images[index]
- *       return (item.height / item.width) * columnWidth
- *     },
- *   })]}
- *   renderItem={({ item, width }) => (
- *     <Image src={item.url} width={width} />
- *   )}
- * />
+ * // The plugin lays items out on a kernel; the VirtualMasonry component does this itself from its props
+ * const kernel = createKernel({ itemCount: images.length, estimatedItemHeight: 200 })
+ * const masonry = masonryRenderer({
+ *   columns: 3,
+ *   gap: 8,
+ *   getItemHeight: (index, columnWidth) => {
+ *     const item = images[index]
+ *     return (item.height / item.width) * columnWidth
+ *   },
+ * })
+ * kernel.register(masonry)
+ * const items = masonry.api.getVirtualItems()
  * ```
  */
 export function masonryRenderer(options: MasonryRendererOptions): Plugin {
@@ -76,7 +76,7 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
 
   let kernel: Kernel | null = null
   let virtualItems: VirtualItem[] = []
-  let columnCount = typeof columns === 'number' ? columns : 1
+  let columnCount = typeof columns === 'number' ? normalizeColumnCount(columns) : 1
   let columnWidth = 0
   let columnHeights: number[] = []
   let totalHeight = 0
@@ -89,7 +89,7 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
    */
   function calculateColumns(containerWidth: number): void {
     if (typeof columns === 'number') {
-      columnCount = columns
+      columnCount = normalizeColumnCount(columns)
     } else {
       // Auto columns based on container width
       columnCount = Math.max(1, Math.floor((containerWidth + gap) / (minColumnWidth + gap)))
@@ -121,7 +121,9 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
         }
       }
 
-      const itemHeight = getItemHeight(i, columnWidth)
+      // A height that is not a finite non-negative number would poison the column heights and the total size
+      const measured = getItemHeight(i, columnWidth)
+      const itemHeight = Number.isFinite(measured) && measured > 0 ? measured : 0
       const top = columnHeights[shortestCol] ?? 0
 
       layoutCache.set(i, { top, lane: shortestCol, height: itemHeight })

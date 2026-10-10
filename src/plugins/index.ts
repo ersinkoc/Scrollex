@@ -66,6 +66,7 @@ export type {
   DragAxis,
   DropIndicatorStyle,
   DragHandleProps,
+  DragEventLike,
   DebugPanelOptions,
   DebugPanelAPI,
   DebugPanelPosition,

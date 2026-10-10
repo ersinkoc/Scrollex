@@ -47,7 +47,7 @@ const features = [
   {
     icon: Package,
     title: 'Tree-Shakeable',
-    description: 'Import only what you need. Minimal bundle impact with ~3KB core size.',
+    description: 'Import only what you need. Minimal bundle impact with ~5KB core size.',
     gradient: 'from-blue-500 to-cyan-500',
   },
   {
@@ -67,9 +67,9 @@ const features = [
 // Plugins data
 const plugins = [
   { icon: Infinity, name: 'Infinite Scroll', desc: 'Load more content automatically' },
-  { icon: Layers, name: 'Sticky Headers', desc: 'Group headers that stick on scroll' },
+  { icon: Layers, name: 'Sticky Headers', desc: 'Tracks the current group header while scrolling' },
   { icon: GripVertical, name: 'Dynamic Heights', desc: 'Variable item heights support' },
-  { icon: ArrowRight, name: 'Bidirectional', desc: 'Horizontal and vertical scrolling' },
+  { icon: ArrowRight, name: 'Bidirectional', desc: 'Chat-style lists: stick to the bottom, load both ways' },
   { icon: Bug, name: 'Debug Panel', desc: 'Development performance insights' },
   { icon: RotateCcw, name: 'Scroll Restoration', desc: 'Remember scroll position' },
 ]

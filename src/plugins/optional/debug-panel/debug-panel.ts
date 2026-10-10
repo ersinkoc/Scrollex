@@ -37,6 +37,7 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
   let lastFpsUpdate = performance.now()
   let currentFps = 60
   let rafId: number | null = null
+  let eventUnsubscribers: Array<() => void> = []
 
   const emptyRange: Range = {
     startIndex: 0,
@@ -134,8 +135,17 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
       }
     }
 
-    const visibleItems = (visibleRange.end ?? visibleRange.endIndex) - (visibleRange.start ?? visibleRange.startIndex)
-    const renderedItems = (renderRange.end ?? renderRange.endIndex) - (renderRange.start ?? renderRange.startIndex)
+    // Ranges are inclusive (endIndex is the last index) and an empty list reports 0..0
+    const countOf = (range: typeof visibleRange): number =>
+      itemCount === 0 ? 0 : (range.end ?? range.endIndex) - (range.start ?? range.startIndex) + 1
+    const visibleItems = countOf(visibleRange)
+    const renderedItems = countOf(renderRange)
+
+    // Scroll offset and distance along the list's own axis
+    const horizontal = kernel.getOptions().direction === 'horizontal'
+    const viewport = kernel.getViewport()
+    const scrollOffset = horizontal ? scrollPos.scrollLeft : scrollPos.scrollTop
+    const maxScroll = kernel.getTotalSize() - (horizontal ? viewport.width : viewport.height)
 
     state.stats = {
       ...state.stats,
@@ -147,8 +157,8 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
       avgItemHeight: itemCount > 0 ? kernel.getTotalSize() / itemCount : 0,
       scrollPosition: {
         ...scrollPos,
-        offset: scrollPos.scrollTop,
-        percentage: kernel.getTotalSize() > 0 ? scrollPos.scrollTop / kernel.getTotalSize() : 0,
+        offset: scrollOffset,
+        percentage: maxScroll > 0 ? Math.min(1, Math.max(0, scrollOffset / maxScroll)) : 0,
       },
       visibleRange: {
         ...visibleRange,
@@ -199,6 +209,13 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
    */
   function startMonitoring(): void {
     if (rafId !== null) return
+
+    // Count frames from now on: the counters kept the time of the plugin's creation (or of the last hide), and
+    // the first readings would span the whole time the panel was not running
+    const now = performance.now()
+    frameCount = 0
+    lastFpsUpdate = now
+    lastFrameTime = now
 
     updateFps()
 
@@ -329,21 +346,20 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
     install(k: Kernel): void {
       kernel = k
 
-      // Subscribe to all events
+      // Subscribe to all events (the kernel emits kebab-case types)
       const eventTypes = [
         'scroll',
-        'scrollStart',
-        'scrollEnd',
-        'visibleRangeChange',
-        'itemMeasured',
+        'scroll-start',
+        'scroll-end',
+        'visible-range-change',
+        'item-measured',
         'resize',
-        'loadMore',
-        'itemsChange',
+        'load-more',
+        'items-change',
       ] as const
 
-      eventTypes.forEach((type) => {
-        kernel?.on(type as any, logEvent as any)
-      })
+      eventUnsubscribers.forEach((unsubscribe) => unsubscribe())
+      eventUnsubscribers = eventTypes.map((type) => k.on(type as any, logEvent as any))
 
       if (state.visible) {
         startMonitoring()
@@ -352,6 +368,8 @@ export function debugPanel(options: DebugPanelOptions = {}): Plugin {
 
     uninstall(): void {
       stopMonitoring()
+      eventUnsubscribers.forEach((unsubscribe) => unsubscribe())
+      eventUnsubscribers = []
       kernel = null
     },
 

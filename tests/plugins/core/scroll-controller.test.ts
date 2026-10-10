@@ -49,6 +49,7 @@ function createMockKernel(options: { scrollTop?: number; viewportHeight?: number
     getPlugins: vi.fn(() => []),
     hasPlugin: vi.fn(),
     getItemCount: vi.fn(() => 20),
+    getOptions: vi.fn(() => ({ direction: 'vertical' })),
   } as unknown as Kernel
 }
 
@@ -144,7 +145,6 @@ describe('scrollControllerPlugin', () => {
 
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 500,
-        scrollLeft: 0,
       })
     })
 
@@ -156,7 +156,6 @@ describe('scrollControllerPlugin', () => {
 
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 300,
-        scrollLeft: 0,
       })
     })
 
@@ -217,9 +216,22 @@ describe('scrollControllerPlugin', () => {
 
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 500,
-        scrollLeft: 0,
       })
       expect(plugin.api?.isAnimating()).toBe(false)
+    })
+
+    it('should set the offset directly for a negative or NaN duration instead of animating for ever', () => {
+      for (const duration of [-100, Number.NaN]) {
+        kernel = createMockKernel()
+        const plugin = scrollControllerPlugin()
+        plugin.install?.(kernel)
+
+        plugin.api?.scrollTo(500, { behavior: 'smooth', duration })
+
+        expect(kernel.setScrollPosition).toHaveBeenCalledTimes(1)
+        expect(kernel.setScrollPosition).toHaveBeenCalledWith({ scrollTop: 500 })
+        expect(plugin.api?.isAnimating()).toBe(false)
+      }
     })
   })
 
@@ -233,7 +245,6 @@ describe('scrollControllerPlugin', () => {
       // Index 5 = offset 500
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 500,
-        scrollLeft: 0,
       })
     })
 
@@ -247,7 +258,6 @@ describe('scrollControllerPlugin', () => {
       // Center: 1000 - 400/2 + 100/2 = 1000 - 200 + 50 = 850
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 850,
-        scrollLeft: 0,
       })
     })
 
@@ -261,7 +271,6 @@ describe('scrollControllerPlugin', () => {
       // End: 1000 - 400 + 100 = 700
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 700,
-        scrollLeft: 0,
       })
     })
 
@@ -276,7 +285,6 @@ describe('scrollControllerPlugin', () => {
       // Item above viewport - scroll to start
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 200,
-        scrollLeft: 0,
       })
     })
 
@@ -293,7 +301,6 @@ describe('scrollControllerPlugin', () => {
       // Target: 1100 - 400 = 700
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 700,
-        scrollLeft: 0,
       })
     })
 
@@ -319,7 +326,6 @@ describe('scrollControllerPlugin', () => {
       // Index 5 = offset 500 + 50 = 550
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 550,
-        scrollLeft: 0,
       })
     })
 
@@ -333,7 +339,6 @@ describe('scrollControllerPlugin', () => {
       // Max scroll: 500 - 400 = 100
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 100,
-        scrollLeft: 0,
       })
     })
 
@@ -354,7 +359,6 @@ describe('scrollControllerPlugin', () => {
 
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 0,
-        scrollLeft: 0,
       })
     })
 
@@ -384,7 +388,6 @@ describe('scrollControllerPlugin', () => {
       // Max scroll: 2000 - 400 = 1600
       expect(kernel.setScrollPosition).toHaveBeenCalledWith({
         scrollTop: 1600,
-        scrollLeft: 0,
       })
     })
 

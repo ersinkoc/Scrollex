@@ -31,6 +31,27 @@ describe('raf', () => {
   })
 })
 
+describe('raf without requestAnimationFrame', () => {
+  it('should hand the callback a timestamp on the performance.now() time base', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('requestAnimationFrame', undefined)
+    const now = vi.spyOn(performance, 'now').mockReturnValue(5000)
+    const callback = vi.fn()
+
+    try {
+      raf(callback)
+      await vi.advanceTimersByTimeAsync(16)
+
+      // (Date.now() is an epoch time in the hundreds of billions: animations compare the value with performance.now())
+      expect(callback).toHaveBeenCalledWith(5000)
+    } finally {
+      now.mockRestore()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('cancelRaf', () => {
   it('should call cancelAnimationFrame', () => {
     cancelRaf(123)

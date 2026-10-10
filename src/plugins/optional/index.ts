@@ -42,6 +42,7 @@ export type {
   DragAxis,
   DropIndicatorStyle,
   DragHandleProps,
+  DragEventLike,
 } from './drag-to-reorder.js'
 
 export type {

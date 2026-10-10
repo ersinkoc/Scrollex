@@ -14,15 +14,24 @@ export interface RangeCalculatorOptions {
 
 /**
  * Calculates the visible range of items using binary search.
- * Maintains an offset cache for efficient lookups.
+ *
+ * Unmeasured items are sized with the average of the measured ones, so one new measurement moves every
+ * later offset. Offsets are therefore not stored per item: the measured items live in two Fenwick trees
+ * (how many there are, and their total height before an index) and
+ *
+ *   offset(i) = measuredHeightBefore(i) + (i - measuredCountBefore(i)) * unmeasuredSize
+ *
+ * so a measurement costs O(log n) instead of a walk over the whole list.
  */
 export class RangeCalculator {
   private itemCount: number
   private overscan: number
   private measurementCache: MeasurementCache
-  private offsetCache: number[] = []
-  private dirtyFromIndex = 0
-  private totalSize = 0
+
+  // Fenwick trees (1-based) over the measured items with index < itemCount
+  private countTree: Float64Array = new Float64Array(1)
+  private sumTree: Float64Array = new Float64Array(1)
+  private treesValid = false
 
   /**
    * Create a new range calculator.
@@ -33,7 +42,6 @@ export class RangeCalculator {
     this.itemCount = options.itemCount
     this.overscan = options.overscan
     this.measurementCache = new MeasurementCache(options.estimatedItemHeight)
-    this.rebuildOffsetCache()
   }
 
   /**
@@ -52,9 +60,6 @@ export class RangeCalculator {
         overscanEndIndex: 0,
       }
     }
-
-    // Ensure offset cache is up to date
-    this.ensureOffsetCacheValid(this.itemCount - 1)
 
     // Find start index using binary search
     const startIndex = this.findStartIndex(scrollOffset)
@@ -93,15 +98,12 @@ export class RangeCalculator {
    * Find the end index for a given scroll end position.
    */
   private findEndIndex(scrollEnd: number, startIndex: number): number {
-    if (scrollEnd >= this.totalSize) return this.itemCount - 1
+    if (scrollEnd >= this.getTotalSize()) return this.itemCount - 1
 
-    // Linear search from start index is often faster for small ranges
+    // Linear search from start index is often faster for small ranges: the last item that starts
+    // before the end of the viewport is the last one that is at least partly inside it
     let index = startIndex
-    while (index < this.itemCount - 1) {
-      const itemStart = this.getItemOffset(index)
-      if (itemStart >= scrollEnd) {
-        break
-      }
+    while (index < this.itemCount - 1 && this.getItemOffset(index + 1) < scrollEnd) {
       index++
     }
 
@@ -116,10 +118,9 @@ export class RangeCalculator {
    */
   getItemOffset(index: number): number {
     if (index < 0 || this.itemCount === 0) return 0
-    if (index >= this.itemCount) return this.totalSize
+    if (index >= this.itemCount) return this.getTotalSize()
 
-    this.ensureOffsetCacheValid(index)
-    return this.offsetCache[index] ?? 0
+    return this.offsetBefore(Math.floor(index))
   }
 
   /**
@@ -148,8 +149,7 @@ export class RangeCalculator {
    * @returns Total size
    */
   getTotalSize(): number {
-    this.ensureOffsetCacheValid(this.itemCount - 1)
-    return this.totalSize
+    return this.offsetBefore(this.itemCount)
   }
 
   /**
@@ -161,9 +161,7 @@ export class RangeCalculator {
    */
   setItemHeight(index: number, height: number): number | undefined {
     const previousHeight = this.measurementCache.set(index, height)
-
-    // Mark offset cache as dirty from this index
-    this.invalidateFrom(index)
+    this.track(index, previousHeight === undefined ? 1 : 0, height - (previousHeight ?? 0))
 
     return previousHeight
   }
@@ -184,8 +182,9 @@ export class RangeCalculator {
    * @param index - Item index
    */
   invalidate(index: number): void {
+    const previousHeight = this.measurementCache.get(index)
     if (this.measurementCache.delete(index)) {
-      this.invalidateFrom(index)
+      this.track(index, -1, -(previousHeight ?? 0))
     }
   }
 
@@ -194,51 +193,7 @@ export class RangeCalculator {
    */
   invalidateAll(): void {
     this.measurementCache.clear()
-    this.dirtyFromIndex = 0
-    this.rebuildOffsetCache()
-  }
-
-  /**
-   * Mark offset cache as dirty from a specific index.
-   */
-  private invalidateFrom(index: number): void {
-    this.dirtyFromIndex = Math.min(this.dirtyFromIndex, index)
-  }
-
-  /**
-   * Ensure offset cache is valid up to the given index.
-   */
-  private ensureOffsetCacheValid(upToIndex: number): void {
-    if (this.dirtyFromIndex > upToIndex) return
-
-    // Rebuild dirty portion
-    let offset = this.dirtyFromIndex === 0 ? 0 : (this.offsetCache[this.dirtyFromIndex - 1] ?? 0) + this.getItemSize(this.dirtyFromIndex - 1)
-
-    for (let i = this.dirtyFromIndex; i <= upToIndex && i < this.itemCount; i++) {
-      this.offsetCache[i] = offset
-      offset += this.getItemSize(i)
-    }
-
-    // Update total size if we reached the end
-    if (upToIndex >= this.itemCount - 1) {
-      this.totalSize = offset
-    }
-
-    this.dirtyFromIndex = upToIndex + 1
-  }
-
-  /**
-   * Rebuild the entire offset cache.
-   */
-  private rebuildOffsetCache(): void {
-    this.offsetCache = new Array(this.itemCount)
-    this.dirtyFromIndex = 0
-
-    if (this.itemCount > 0) {
-      this.ensureOffsetCacheValid(this.itemCount - 1)
-    } else {
-      this.totalSize = 0
-    }
+    this.treesValid = false
   }
 
   /**
@@ -253,26 +208,14 @@ export class RangeCalculator {
     this.itemCount = count
 
     if (count < previousCount) {
-      // Shrinking - truncate cache and recalculate total size
-      this.offsetCache.length = count
-      // Force recalculation of totalSize by calculating it directly
-      if (count > 0) {
-        // Use the last item's offset + size to get totalSize
-        const lastIndex = count - 1
-        // Ensure cache is valid up to the last item
-        this.dirtyFromIndex = Math.min(this.dirtyFromIndex, lastIndex)
-        this.ensureOffsetCacheValid(lastIndex)
-      } else {
-        this.totalSize = 0
-      }
-    } else {
-      // Growing - extend cache
-      this.offsetCache.length = count
-      // Mark new items as dirty
-      if (this.dirtyFromIndex > previousCount) {
-        this.dirtyFromIndex = previousCount
+      // Shrinking - the removed items take their measurements with them (they would keep feeding the
+      // average that sizes unmeasured items, and come back for other items if the list grows again)
+      for (const measured of this.measurementCache.getMeasuredIndices()) {
+        if (measured >= count) this.measurementCache.delete(measured)
       }
     }
+
+    this.treesValid = false
   }
 
   /**
@@ -290,9 +233,8 @@ export class RangeCalculator {
    * @param height - New estimated height
    */
   setEstimatedHeight(height: number): void {
+    // Unmeasured items are sized from it: offsets are computed from the current value on every query
     this.measurementCache.setEstimatedHeight(height)
-    // Invalidate all unmeasured items
-    this.dirtyFromIndex = 0
   }
 
   /**
@@ -312,9 +254,7 @@ export class RangeCalculator {
    */
   getItemAtOffset(offset: number): number {
     if (offset <= 0 || this.itemCount === 0) return 0
-    if (offset >= this.totalSize) return this.itemCount - 1
-
-    this.ensureOffsetCacheValid(this.itemCount - 1)
+    if (offset >= this.getTotalSize()) return this.itemCount - 1
 
     return binarySearch(this.itemCount, (mid) => {
       const itemEnd = this.getItemEnd(mid)
@@ -338,5 +278,60 @@ export class RangeCalculator {
    */
   getItemCount(): number {
     return this.itemCount
+  }
+
+  /**
+   * Position where item `index` starts (index === itemCount gives the total size).
+   */
+  private offsetBefore(index: number): number {
+    this.ensureTrees()
+
+    let measuredCount = 0
+    let measuredSum = 0
+    for (let i = index; i > 0; i -= i & -i) {
+      measuredCount += this.countTree[i]!
+      measuredSum += this.sumTree[i]!
+    }
+
+    return measuredSum + (index - measuredCount) * this.measurementCache.getEstimatedHeight()
+  }
+
+  /**
+   * Record that the measured set changed at `index` (a no-op until the trees are built).
+   */
+  private track(index: number, countDelta: number, sumDelta: number): void {
+    if (!this.treesValid || index < 0 || index >= this.itemCount || !Number.isInteger(index)) return
+
+    for (let i = index + 1; i <= this.itemCount; i += i & -i) {
+      this.countTree[i]! += countDelta
+      this.sumTree[i]! += sumDelta
+    }
+  }
+
+  /**
+   * Build the Fenwick trees from the measurement cache (linear time).
+   */
+  private ensureTrees(): void {
+    if (this.treesValid) return
+
+    const size = this.itemCount
+    this.countTree = new Float64Array(size + 1)
+    this.sumTree = new Float64Array(size + 1)
+
+    for (const index of this.measurementCache.getMeasuredIndices()) {
+      if (index < 0 || index >= size || !Number.isInteger(index)) continue
+      this.countTree[index + 1] = 1
+      this.sumTree[index + 1] = this.measurementCache.get(index) ?? 0
+    }
+
+    for (let i = 1; i <= size; i++) {
+      const parent = i + (i & -i)
+      if (parent <= size) {
+        this.countTree[parent]! += this.countTree[i]!
+        this.sumTree[parent]! += this.sumTree[i]!
+      }
+    }
+
+    this.treesValid = true
   }
 }

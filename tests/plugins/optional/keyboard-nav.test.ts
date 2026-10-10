@@ -1,6 +1,26 @@
 import { vi } from 'vitest'
+import { createKernel } from '../../../src/kernel/kernel.js'
 import { keyboardNav } from '../../../src/plugins/optional/keyboard-nav.js'
 import type { Kernel } from '../../../src/types.js'
+
+// keyboardNav listens on the document and most tests never uninstall their plugin: drop the
+// document listeners a test added so one test's plugin cannot react to the next test's keys
+const addedDocumentListeners: Array<[string, EventListenerOrEventListenerObject]> = []
+const addDocumentListener = document.addEventListener.bind(document)
+beforeAll(() => {
+  vi.spyOn(document, 'addEventListener').mockImplementation((type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions) => {
+    addedDocumentListeners.push([type, listener])
+    addDocumentListener(type, listener, options)
+  })
+})
+afterEach(() => {
+  for (const [type, listener] of addedDocumentListeners.splice(0)) {
+    document.removeEventListener(type, listener)
+  }
+})
+afterAll(() => {
+  vi.mocked(document.addEventListener).mockRestore()
+})
 
 // Mock kernel
 function createMockKernel(options: { itemCount?: number } = {}): Kernel {
@@ -412,14 +432,13 @@ describe('keyboardNav', () => {
       expect(plugin.api?.getFocusedIndex()).toBe(5)
     })
 
-    it('should initialize focus on first key press if not set', () => {
+    it('should start at the first item when moving forward with nothing focused', () => {
       const plugin = keyboardNav()
       plugin.install?.(kernel)
 
       document.dispatchEvent(createKeyboardEvent('ArrowDown'))
 
-      // Should initialize to 0 and then move to 1
-      expect(plugin.api?.getFocusedIndex()).toBe(1)
+      expect(plugin.api?.getFocusedIndex()).toBe(0)
     })
   })
 
@@ -508,5 +527,238 @@ describe('keyboardNav', () => {
 
       expect(plugin.api?.getFocusedIndex()).toBeNull()
     })
+  })
+})
+
+describe('keyboardNav editable targets', () => {
+  it('should not hijack keys typed into form fields', () => {
+    const kernel = createKernel({ itemCount: 50, estimatedItemHeight: 50 })
+    const onSelect = vi.fn()
+    const plugin = keyboardNav({ onSelect })
+    kernel.register(plugin)
+    plugin.api?.setFocusedIndex(3)
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    input.dispatchEvent(space)
+    const home = new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })
+    input.dispatchEvent(home)
+
+    expect(space.defaultPrevented).toBe(false)
+    expect(home.defaultPrevented).toBe(false)
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(plugin.api?.getFocusedIndex()).toBe(3)
+    input.remove()
+    kernel.destroy()
+  })
+})
+
+describe('keyboardNav modified keys', () => {
+  function press(key: string, init: KeyboardEventInit = {}): boolean {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init })
+    document.body.dispatchEvent(event)
+    return event.defaultPrevented
+  }
+
+  it('should leave Alt, Ctrl and Meta combinations to the browser', () => {
+    const cases: Array<[string, KeyboardEventInit, 'vertical' | 'horizontal']> = [
+      ['ArrowLeft', { altKey: true }, 'horizontal'],
+      ['Home', { ctrlKey: true }, 'vertical'],
+      ['End', { metaKey: true }, 'vertical'],
+      ['PageDown', { ctrlKey: true }, 'vertical'],
+    ]
+    for (const [key, init, orientation] of cases) {
+      const kernel = createKernel({ itemCount: 50, estimatedItemHeight: 50 })
+      const plugin = keyboardNav({ orientation })
+      kernel.register(plugin)
+
+      expect(press(key, init)).toBe(false)
+      expect(plugin.api?.getFocusedIndex()).toBeNull()
+      kernel.destroy()
+    }
+  })
+
+  it('should still pass modified keys to the custom handler and keep Shift navigating', () => {
+    const kernel = createKernel({ itemCount: 50, estimatedItemHeight: 50 })
+    const onKeyDown = vi.fn()
+    const plugin = keyboardNav({ onKeyDown })
+    kernel.register(plugin)
+
+    press('a', { ctrlKey: true })
+    expect(onKeyDown).toHaveBeenCalledTimes(1)
+    expect(press('ArrowDown', { shiftKey: true })).toBe(true)
+    kernel.destroy()
+  })
+})
+
+describe('keyboardNav typeahead start', () => {
+  const words = ['apple', 'apricot', 'banana', 'blueberry', 'cherry']
+
+  function setup() {
+    const kernel = createKernel({ itemCount: words.length, estimatedItemHeight: 50 })
+    const plugin = keyboardNav({ typeahead: true, getItemText: (index) => words[index]! })
+    kernel.register(plugin)
+    return { kernel, plugin }
+  }
+  const type = (...keys: string[]) => keys.forEach((key) => document.body.dispatchEvent(createKeyboardEvent(key)))
+
+  it('should focus the first match when nothing was focused', () => {
+    const { kernel, plugin } = setup()
+
+    type('a')
+
+    expect(plugin.api?.getFocusedIndex()).toBe(0)
+    kernel.destroy()
+  })
+
+  it('should keep the item being spelled while it still matches the prefix', () => {
+    const { kernel, plugin } = setup()
+
+    type('a', 'p')
+
+    expect(plugin.api?.getFocusedIndex()).toBe(0)
+    type('r')
+    expect(plugin.api?.getFocusedIndex()).toBe(1)
+    kernel.destroy()
+  })
+})
+
+describe('keyboardNav keys that do not use the focus', () => {
+  const press = (key: string) => document.body.dispatchEvent(createKeyboardEvent(key))
+
+  function setup(options: Parameters<typeof keyboardNav>[0] = {}) {
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 50 })
+    const onFocus = vi.fn()
+    const onSelect = vi.fn()
+    const plugin = keyboardNav({ onFocus, onSelect, ...options })
+    kernel.register(plugin)
+    return { kernel, plugin, onFocus, onSelect }
+  }
+
+  it('should ignore unrelated keys while nothing is focused', () => {
+    const { kernel, plugin, onFocus } = setup()
+    const scrollToIndex = vi.spyOn(kernel, 'scrollToIndex')
+
+    for (const key of ['Escape', 'Shift', 'F5', 'Tab', 'x']) {
+      press(key)
+    }
+
+    expect(plugin.api?.getFocusedIndex()).toBeNull()
+    expect(onFocus).not.toHaveBeenCalled()
+    expect(scrollToIndex).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should neither select nor claim Enter and Space while nothing is focused', () => {
+    const { kernel, onSelect } = setup()
+
+    for (const key of ['Enter', ' ']) {
+      const event = createKeyboardEvent(key)
+      document.body.dispatchEvent(event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+
+    expect(onSelect).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should select the focused item on Enter and claim the key', () => {
+    const { kernel, plugin, onSelect } = setup()
+    plugin.api?.setFocusedIndex(3)
+
+    const event = createKeyboardEvent('Enter')
+    document.body.dispatchEvent(event)
+
+    expect(onSelect).toHaveBeenCalledWith(3)
+    expect(event.defaultPrevented).toBe(true)
+    kernel.destroy()
+  })
+
+  it('should start on the first item with ArrowRight in a horizontal list and ArrowDown in a grid', () => {
+    const horizontal = setup({ orientation: 'horizontal' })
+    press('ArrowRight')
+    expect(horizontal.plugin.api?.getFocusedIndex()).toBe(0)
+    horizontal.kernel.destroy()
+
+    const grid = setup({ orientation: 'grid', columns: 4 })
+    press('ArrowDown')
+    expect(grid.plugin.api?.getFocusedIndex()).toBe(0)
+    press('ArrowDown')
+    expect(grid.plugin.api?.getFocusedIndex()).toBe(4)
+    grid.kernel.destroy()
+  })
+})
+
+describe('keyboardNav created again for the same kernel', () => {
+  it('should continue with the focus of the previous instance without announcing it', () => {
+    const kernel = createKernel({ itemCount: 20, estimatedItemHeight: 50 })
+    const onFocus = vi.fn()
+    const first = keyboardNav({ onFocus })
+    kernel.register(first)
+    first.api?.setFocusedIndex(7)
+    kernel.unregister('keyboard-nav')
+    onFocus.mockClear()
+
+    const second = keyboardNav({ onFocus })
+    kernel.register(second)
+
+    expect(second.api?.getFocusedIndex()).toBe(7)
+    expect(onFocus).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should start unfocused on another kernel, clamp to a shorter list and keep a cleared focus cleared', () => {
+    const kernel = createKernel({ itemCount: 20, estimatedItemHeight: 50 })
+    const first = keyboardNav({})
+    kernel.register(first)
+    first.api?.setFocusedIndex(15)
+
+    const other = createKernel({ itemCount: 20, estimatedItemHeight: 50 })
+    const unrelated = keyboardNav({})
+    other.register(unrelated)
+    expect(unrelated.api?.getFocusedIndex()).toBeNull()
+
+    kernel.unregister('keyboard-nav')
+    kernel.configure({ itemCount: 4 })
+    const shorter = keyboardNav({})
+    kernel.register(shorter)
+    expect(shorter.api?.getFocusedIndex()).toBe(3)
+
+    shorter.api?.setFocusedIndex(null)
+    kernel.unregister('keyboard-nav')
+    const cleared = keyboardNav({})
+    kernel.register(cleared)
+    expect(cleared.api?.getFocusedIndex()).toBeNull()
+    kernel.destroy()
+    other.destroy()
+  })
+})
+
+describe('keyboardNav page keys with loop', () => {
+  function focusAfter(loop: boolean, start: number, key: string) {
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 50 })
+    const plugin = keyboardNav({ loop, pageSize: 10 })
+    kernel.register(plugin)
+    plugin.api?.setFocusedIndex(start)
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    const focused = plugin.api?.getFocusedIndex()
+    kernel.destroy()
+    return focused
+  }
+
+  it('should clamp PageDown and PageUp at the ends instead of wrapping', () => {
+    expect(focusAfter(true, 95, 'PageDown')).toBe(99)
+    expect(focusAfter(true, 3, 'PageUp')).toBe(0)
+  })
+
+  it('should still wrap single steps (control)', () => {
+    expect(focusAfter(true, 99, 'ArrowDown')).toBe(0)
+    expect(focusAfter(true, 0, 'ArrowUp')).toBe(99)
+  })
+
+  it('should move by a page inside the list', () => {
+    expect(focusAfter(true, 20, 'PageDown')).toBe(30)
+    expect(focusAfter(false, 95, 'PageDown')).toBe(99)
   })
 })
