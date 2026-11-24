@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-24
+
+### Changed
+- `engines` reports `>= 18.0.0` again: both published bundles import only `react` and `react/jsx-runtime`, so the Node 22.18 floor that the current test and build tools need is a development-only constraint and no longer warns installers of the package.
+- The toolchain requirement is declared in `devEngines` (`^22.18.0 || ^24.11.0 || >=26.0.0`, `onFail: "warn"`), which npm checks when a contributor installs the project.
+- CI runs on Node 24 and still runs `npm ci`, typecheck, the test suite and the build.
+
+### Security
+- Updated the dev-only dependency tree to clear the reachable Dependabot advisories: `vitest` and `@vitest/coverage-v8` 5.1.1, `tsup` 9.0.0, and the website's React Router 7.18.7, Vite 8.3.8 and `@vitejs/plugin-react` 6.3.0. Nothing shipped changed: `dist` still imports only React.
+
+### Removed
+- Unused `vitepress` devDependency and its `docs:*` scripts, which pointed at a `docs/` directory that does not exist.
+
 ## [1.0.1] - 2026-11-24
 
 ### Changed
@@ -97,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/ersinkoc/Scrollex/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ersinkoc/Scrollex/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ersinkoc/Scrollex/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ersinkoc/Scrollex/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ersinkoc/Scrollex/releases/tag/v1.0.0
