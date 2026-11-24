@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `infiniteLoaderPlugin` loads for a list that fits its viewport (it looks once at install); `scrollRestoration` waits for data that arrives after mount and no longer overwrites the saved position; `initialScrollOffset` also works when the list is empty at mount.
 - Scroll events of programmatic scrolls carry their delta and direction; a smooth scroll never starts backward (its first frame can precede the start time).
 - Grid and masonry size their columns from the content box of a padded container; `useVirtualGrid` no longer accepts list-only options it ignores (`estimatedItemHeight`, `horizontal`, `paddingStart`, `paddingEnd`, `scrollMargin`); `GridRendererOptions.getContainerWidth` is new.
+- `infiniteLoaderPlugin`'s `reset()` drops the check its debounce window queued for the data being replaced, so a reset list no longer loads for the position it had in the old data.
+- Removing items rebuilds the measured count and size sum from the entries that remain: a shifted measurement that lands on an index that is still measured no longer leaves both overstated.
+- A programmatic scroll stopped from inside a frame (a host that reports the scroll synchronously) really ends: the running frame neither schedules another one nor clears the state of a newer animation.
+- `autoMeasurerPlugin` drops an element's previous index when it is observed for a new one, so an element reused for another row is no longer measured under its stale index.
+- `useLoadMoreWhenShort` handles a rejected `onLoadMore()` (logged as `[Scrollex] Error in onLoadMore:`) instead of leaving an unhandled rejection.
 
 ## [1.0.0] - 2025-12-27
 
