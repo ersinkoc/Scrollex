@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 import { stickyHeaders } from '../../../src/plugins/optional/sticky-headers.js'
 import type { Kernel, ScrollEvent } from '../../../src/types.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
+import type { StickyHeadersAPI } from '../../../src/plugins/optional/sticky-headers.js'
 
 // Sample data structure for testing
 const testItems = [
@@ -394,5 +396,31 @@ describe('stickyHeaders', () => {
 
       expect(plugin.api?.getHeaderIndices()).toEqual([])
     })
+  })
+})
+
+describe('stickyHeaders on a horizontal list', () => {
+  function currentAt(horizontal: boolean, offset: number): number | null {
+  const el = document.createElement('div')
+  let pos = 0
+  Object.defineProperty(el, horizontal ? 'scrollLeft' : 'scrollTop', { get: () => pos, set: (v: number) => { pos = v }, configurable: true })
+  Object.defineProperty(el, 'clientWidth', { get: () => 300, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { get: () => 300, configurable: true })
+  const kernel = createKernel({ itemCount: 20, estimatedItemHeight: 40, overscan: 0, direction: horizontal ? 'horizontal' : 'vertical' })
+  const plugin = stickyHeaders({ headerHeight: 40, isHeader: (i) => i % 5 === 0, getGroupId: (i) => String(Math.floor(i / 5)) })
+  kernel.register(plugin)
+  kernel.attach(el)
+  kernel.emit({ type: 'scroll', scrollTop: horizontal ? 0 : offset, scrollLeft: horizontal ? offset : 0, deltaY: 0, deltaX: 0, direction: 'none', timestamp: 0 } as never)
+  const current = (plugin.api as StickyHeadersAPI).getCurrentStickyHeader()
+  kernel.destroy()
+  return current
+}
+
+  it('should track the headers by scrollTop in a vertical list (control)', () => {
+    expect([currentAt(false, 0), currentAt(false, 300), currentAt(false, 450)]).toEqual([0, 5, 10])
+  })
+
+  it('should track the headers by scrollLeft in a horizontal list', () => {
+    expect([currentAt(true, 0), currentAt(true, 300), currentAt(true, 450)]).toEqual([0, 5, 10])
   })
 })

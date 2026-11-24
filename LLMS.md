@@ -1041,8 +1041,8 @@ interface DebugPanelOptions {
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
   theme?: 'light' | 'dark' | 'auto'
   showFps?: boolean              // Default: true
-  showViewportOverlay?: boolean  // Default: false
-  showItemBoundaries?: boolean   // Default: false
+  showViewportOverlay?: boolean  // Default: false (declared, not implemented yet: the switch only changes a flag)
+  showItemBoundaries?: boolean   // Default: false (declared, not implemented yet: the switch only changes a flag)
   logEvents?: boolean            // Default: false
   maxEventLogEntries?: number    // Default: 100
   statsUpdateInterval?: number   // Default: 100ms

@@ -179,6 +179,14 @@ export function autoMeasurerPlugin(options: AutoMeasurerOptions = {}): Plugin {
         observedElements.delete(existingElement)
       }
 
+      // The same element recorded for another index leaves that index pointing at an element it no longer belongs
+      // to: a queued flush would measure it there, and unobserve only clears the newest index
+      const previousIndex = observedElements.get(element)
+      if (previousIndex !== undefined && previousIndex !== index) {
+        elementsByIndex.delete(previousIndex)
+        measureQueue.delete(previousIndex)
+      }
+
       // Store the new element
       observedElements.set(element, index)
       // WeakRef is missing in the oldest supported browsers (Chrome < 84, Firefox < 79, Safari < 14.1): hold the element

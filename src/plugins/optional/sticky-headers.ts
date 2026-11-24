@@ -119,6 +119,13 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
   }
 
   /**
+   * The scroll offset along the list's own axis.
+   */
+  function offsetOf(position: { scrollTop: number; scrollLeft: number }): number {
+    return kernel?.getOptions().direction === 'horizontal' ? position.scrollLeft : position.scrollTop
+  }
+
+  /**
    * Update the current sticky header based on scroll position.
    */
   function updateStickyHeader(scrollOffset: number): void {
@@ -150,7 +157,7 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
    */
   function refreshStickyHeader(): void {
     if (!kernel) return
-    updateStickyHeader(kernel.getScrollPosition().scrollTop)
+    updateStickyHeader(offsetOf(kernel.getScrollPosition()))
   }
 
   /**
@@ -218,7 +225,7 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
     },
 
     hooks: {
-      onScroll: (event: ScrollEvent) => updateStickyHeader(event.scrollTop),
+      onScroll: (event: ScrollEvent) => updateStickyHeader(offsetOf(event)),
       onItemsChange: () => {
         buildHeaderCache()
         refreshStickyHeader()

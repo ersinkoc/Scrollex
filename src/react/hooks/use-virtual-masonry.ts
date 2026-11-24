@@ -8,7 +8,7 @@ import type {
   ScrollToIndexOptions,
 } from '../../types.js'
 import { createKernel } from '../../kernel/kernel.js'
-import { normalizeColumnCount, normalizeOverscan } from '../../utils/array.js'
+import { autoColumnCount, normalizeColumnCount, normalizeOverscan } from '../../utils/array.js'
 import { getContentWidth } from '../../utils/rect.js'
 import { getItemsRange } from './items-range.js'
 
@@ -135,7 +135,7 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
     }
 
     const columnTotal = columns === 'auto'
-      ? Math.max(1, Math.floor((containerWidth + gapX) / (minColumnWidth + gapX)))
+      ? autoColumnCount(containerWidth, minColumnWidth, gapX)
       : normalizeColumnCount(columns)
     const newColumnWidth = (containerWidth - (columnTotal - 1) * gapX) / columnTotal
     setColumnCount(columnTotal)
@@ -143,6 +143,7 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
 
     // Reset column heights
     const heights = new Array(columnTotal).fill(0)
+    const itemsInColumn: number[] = new Array(columnTotal).fill(0)
     const cache = new Map<number, { top: number; lane: number; height: number }>()
 
     // Place each item in the shortest column
@@ -163,11 +164,14 @@ export function useVirtualMasonry(options: UseVirtualMasonryOptions): UseVirtual
       cache.set(i, { top, lane: shortestCol, height: itemHeight })
 
       heights[shortestCol] = top + itemHeight + gapY
+      itemsInColumn[shortestCol] = (itemsInColumn[shortestCol] ?? 0) + 1
     }
 
     layoutCacheRef.current = cache
-    setColumnHeights(heights)
-    const total = Math.max(...heights) - gapY
+    // A column's height ends with its last item: the gap added after every item is not part of it (an empty column is 0)
+    const extents = heights.map((height, column) => ((itemsInColumn[column] ?? 0) > 0 ? height - gapY : 0))
+    setColumnHeights(extents)
+    const total = Math.max(...extents)
     setTotalSize(total)
     // ... and a total size that matches the layout (the kernel does not know the columns)
     kernel.configure({ estimatedItemHeight: total / count })

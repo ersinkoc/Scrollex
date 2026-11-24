@@ -759,3 +759,36 @@ describe('createKernel first visible range', () => {
     kernel.destroy()
   })
 })
+
+describe('kernel scroll position offset and percentage', () => {
+  function position(horizontal: boolean) {
+  const el = document.createElement('div')
+  let top = 0
+  let left = 0
+  Object.defineProperty(el, 'scrollTop', { get: () => top, set: (v: number) => { top = v }, configurable: true })
+  Object.defineProperty(el, 'scrollLeft', { get: () => left, set: (v: number) => { left = v }, configurable: true })
+  Object.defineProperty(el, 'clientWidth', { get: () => 300, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+  const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 100, direction: horizontal ? 'horizontal' : 'vertical' })
+  kernel.attach(el)
+  // total 10000: scroll range 9600 (vertical) / 9700 (horizontal)
+  kernel.setScrollPosition(horizontal ? { scrollLeft: 4850 } : { scrollTop: 4800 })
+  const p = kernel.getScrollPosition()
+  kernel.destroy()
+  return p
+}
+
+  it('should report the offset along the list axis and the fraction of the scroll range', () => {
+    expect(position(false)).toMatchObject({ scrollTop: 4800, offset: 4800, percentage: 0.5 })
+    expect(position(true)).toMatchObject({ scrollLeft: 4850, offset: 4850, percentage: 0.5 })
+  })
+
+  it('should report 0 percent when nothing can scroll', () => {
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+    const kernel = createKernel({ itemCount: 3, estimatedItemHeight: 50 })
+    kernel.attach(el)
+    expect(kernel.getScrollPosition()).toMatchObject({ offset: 0, percentage: 0 })
+    kernel.destroy()
+  })
+})

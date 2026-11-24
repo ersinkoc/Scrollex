@@ -247,6 +247,14 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
       state.loading = false
       state.hasMoreForward = true
       state.hasMoreBackward = direction === 'backward' || direction === 'both'
+
+      // A check queued by the debounce window belongs to the dataset that is being replaced: it would load
+      // more for a position the reader no longer has
+      if (trailingTimer !== null) {
+        clearTimeout(trailingTimer)
+        trailingTimer = null
+      }
+      pendingEvent = null
     },
 
     triggerLoad(loadDirection: LoadDirection): void {

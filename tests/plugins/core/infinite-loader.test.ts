@@ -626,7 +626,7 @@ describe('infiniteLoaderPlugin scroll check debounce', () => {
     kernel.register(plugin)
     const scroll = (scrollTop: number) => kernel.emit({ type: 'scroll', scrollTop, scrollLeft: 0, deltaY: 0, deltaX: 0, direction: 'down', timestamp: now })
     const wait = (ms: number) => { now += ms; vi.advanceTimersByTime(ms) }
-    return { kernel, onLoadMore, scroll, wait }
+    return { kernel, onLoadMore, scroll, wait, api: plugin.api as InfiniteLoaderAPI }
   }
 
   it('should check the last event of a gesture that ended inside the debounce window', () => {
@@ -664,6 +664,20 @@ describe('infiniteLoaderPlugin scroll check debounce', () => {
     wait(30)
     scroll(4900)
     kernel.unregister('infinite-loader')
+    wait(400)
+
+    expect(onLoadMore).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should drop a check queued before reset()', () => {
+    const { kernel, onLoadMore, scroll, wait, api } = setup()
+
+    scroll(100)
+    wait(30)
+    scroll(4900) // queued for the end of the window
+    wait(10)
+    api.reset() // a new dataset: the queued check belongs to the previous one
     wait(400)
 
     expect(onLoadMore).not.toHaveBeenCalled()

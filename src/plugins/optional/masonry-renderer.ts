@@ -1,5 +1,5 @@
 import type { Plugin, Kernel, VirtualItem, Viewport } from '../../types.js'
-import { normalizeColumnCount } from '../../utils/array.js'
+import { autoColumnCount, normalizeColumnCount } from '../../utils/array.js'
 
 /**
  * Masonry renderer plugin options.
@@ -92,7 +92,7 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
       columnCount = normalizeColumnCount(columns)
     } else {
       // Auto columns based on container width
-      columnCount = Math.max(1, Math.floor((containerWidth + gap) / (minColumnWidth + gap)))
+      columnCount = autoColumnCount(containerWidth, minColumnWidth, gap)
     }
 
     // Calculate column width
@@ -109,6 +109,7 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
 
     // Reset column heights
     columnHeights = new Array(columnCount).fill(0)
+    const itemsInColumn: number[] = new Array(columnCount).fill(0)
     layoutCache.clear()
 
     // Place each item in the shortest column
@@ -129,13 +130,12 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
       layoutCache.set(i, { top, lane: shortestCol, height: itemHeight })
 
       columnHeights[shortestCol] = top + itemHeight + gap
+      itemsInColumn[shortestCol] = (itemsInColumn[shortestCol] ?? 0) + 1
     }
 
-    // Calculate total height (max column height minus last gap)
+    // A column's height ends with its last item: the gap added after every item is not part of it (an empty column is 0)
+    columnHeights = columnHeights.map((height, column) => ((itemsInColumn[column] ?? 0) > 0 ? height - gap : 0))
     totalHeight = Math.max(...columnHeights, 0)
-    if (totalHeight > 0) {
-      totalHeight -= gap
-    }
   }
 
   /**
@@ -254,6 +254,8 @@ export function masonryRenderer(options: MasonryRendererOptions): Plugin {
     uninstall(): void {
       virtualItems = []
       layoutCache.clear()
+      columnHeights = []
+      totalHeight = 0
       kernel = null
     },
 

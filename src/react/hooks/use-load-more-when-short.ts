@@ -37,7 +37,17 @@ export function useLoadMoreWhenShort(
       : element.scrollHeight - element.scrollTop - element.clientHeight
     if (distanceToEnd < threshold) {
       requestedCount.current = count
-      void onLoadMore()
+      // Observe the returned promise: a rejected load must not surface as an unhandled rejection
+      try {
+        const pending: unknown = onLoadMore()
+        if (pending && typeof (pending as PromiseLike<void>).then === 'function') {
+          Promise.resolve(pending as PromiseLike<void>).catch((error: unknown) => {
+            console.error('[Scrollex] Error in onLoadMore:', error)
+          })
+        }
+      } catch (error) {
+        console.error('[Scrollex] Error in onLoadMore:', error)
+      }
     }
   }, [count, totalSize, hasMore, isLoading, threshold, horizontal, !!onLoadMore])
 }

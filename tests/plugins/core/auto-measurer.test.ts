@@ -288,6 +288,20 @@ describe('autoMeasurerPlugin', () => {
 
       expect(() => plugin.api?.unobserve(element)).not.toThrow()
     })
+
+    it('should measure an element only for the index it is observed for', async () => {
+      const plugin = autoMeasurerPlugin({ measureOnResize: true })
+      plugin.install?.(kernel)
+
+      const shared = createMockElement(100)
+      plugin.api?.observe(3, shared)
+      plugin.api?.observe(5, shared) // the same node now belongs to index 5
+
+      await vi.advanceTimersByTimeAsync(20)
+
+      expect(kernel.measureItem).toHaveBeenCalledTimes(1)
+      expect(kernel.measureItem).toHaveBeenCalledWith(5, 100)
+    })
   })
 })
 

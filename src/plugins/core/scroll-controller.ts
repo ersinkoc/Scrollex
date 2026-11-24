@@ -76,6 +76,9 @@ export function scrollControllerPlugin(
   let kernel: Kernel | null = null
   let animationId: number | null = null
   let animating = false
+  // Bumped by stopAnimation: a frame that is already running when the animation is stopped must not continue it
+  // (its own write can reach a host that reports the scroll synchronously and stops the animation)
+  let animationGeneration = 0
 
   function isHorizontal(k: Kernel): boolean {
     return k.getOptions().direction === 'horizontal'
@@ -108,6 +111,7 @@ export function scrollControllerPlugin(
 
     // Stop any existing animation
     stopAnimation()
+    const generation = animationGeneration
 
     const startTime = performance.now()
     const startOffset = getOffset(kernel)
@@ -126,6 +130,8 @@ export function scrollControllerPlugin(
         animating = false
         return
       }
+      // Stopped or replaced before this frame: the state belongs to the newer owner (or to no animation)
+      if (generation !== animationGeneration) return
 
       const elapsed = currentTime - startTime
       // (a frame's timestamp is its start and can precede the performance.now() of the call that began the animation)
@@ -134,6 +140,10 @@ export function scrollControllerPlugin(
       const currentOffset = startOffset + distance * easedProgress
 
       setOffset(kernel, currentOffset)
+
+      // Stopped (or superseded) by an observer of that write: do not schedule the next frame, and leave the
+      // animation state to whoever stopped or replaced this animation
+      if (generation !== animationGeneration) return
 
       if (progress < 1) {
         animationId = raf(animate)
@@ -150,6 +160,7 @@ export function scrollControllerPlugin(
    * Stop the current animation.
    */
   function stopAnimation(): void {
+    animationGeneration++
     if (animationId !== null) {
       cancelRaf(animationId)
       animationId = null

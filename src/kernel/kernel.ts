@@ -89,7 +89,14 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
 
     // Scroll Control
     getScrollPosition(): ScrollPosition {
-      return scrollEngine.getScrollPosition()
+      const position = scrollEngine.getScrollPosition()
+      // The position along the list's own axis, and how far along the scroll range it is
+      const horizontal = config.direction === 'horizontal'
+      const offset = horizontal ? position.scrollLeft : position.scrollTop
+      const viewport = viewportManager.getViewport()
+      const maxScroll = rangeCalculator.getTotalSize() + startPadding() - (horizontal ? viewport.width : viewport.height)
+      const percentage = maxScroll > 0 ? Math.min(1, Math.max(0, offset / maxScroll)) : 0
+      return { ...position, offset, percentage }
     },
 
     setScrollPosition(position: Partial<ScrollPosition>): void {

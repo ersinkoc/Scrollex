@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `scrollRestoration` restores the position of a new `key` on a list that stays mounted; `EventBus` once-handlers follow the same dispatch snapshot as other handlers.
 - Layout inputs: `columns` that is not a positive whole number (0, a fraction, NaN) and `overscan` that is NaN or negative no longer break or empty the list/grid/masonry; a masonry item with a non-finite height no longer poisons the layout.
 - Website: icon-only controls in the header and footer have accessible names.
+- `columns="auto"` with an unusable `minColumnWidth` (0, negative, NaN) lays out one column instead of crashing the masonry / emptying the grid; `stickyHeaders` follows the axis of a horizontal list; masonry column heights end at each column's last item (no trailing gap) and the renderer reports an empty layout once uninstalled.
+- `kernel.getScrollPosition()` now fills `offset` (position along the list's axis) and `percentage` (0-1); the debug panel's viewport overlay and item boundaries switches are documented as not implemented.
 - Horizontal lists: `infiniteLoaderPlugin`, `autoMeasurerPlugin` and `bidirectional` follow the list's own axis (`scrollLeft` / width) instead of `scrollTop` / height.
 - `infiniteLoaderPlugin` loads for a list that fits its viewport (it looks once at install); `scrollRestoration` waits for data that arrives after mount and no longer overwrites the saved position; `initialScrollOffset` also works when the list is empty at mount.
 - Scroll events of programmatic scrolls carry their delta and direction; a smooth scroll never starts backward (its first frame can precede the start time).

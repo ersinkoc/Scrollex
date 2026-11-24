@@ -1,5 +1,5 @@
 import type { Plugin, Kernel, VirtualItem, Range, GridGap } from '../../types.js'
-import { normalizeColumnCount } from '../../utils/array.js'
+import { autoColumnCount, normalizeColumnCount } from '../../utils/array.js'
 
 /**
  * Grid renderer plugin options.
@@ -71,7 +71,7 @@ export function gridRendererPlugin(options: GridRendererOptions): Plugin {
       columnCount = normalizeColumnCount(columns)
     } else {
       // Auto columns based on container width
-      columnCount = Math.max(1, Math.floor((containerWidth + gapX) / (minColumnWidth + gapX)))
+      columnCount = autoColumnCount(containerWidth, minColumnWidth, gapX)
     }
 
     // Calculate column width

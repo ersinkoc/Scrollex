@@ -233,6 +233,20 @@ export function normalizeColumnCount(columns: number): number {
 }
 
 /**
+ * Columns that fit a container when each needs at least `minColumnWidth` (plus the gap): at least 1, and 1 when the
+ * minimum is not usable (0 or less with no gap, NaN), which would divide by zero.
+ *
+ * @param containerWidth - Width the columns share
+ * @param minColumnWidth - Minimum column width
+ * @param gap - Horizontal gap between columns
+ * @returns Whole number of columns, at least 1
+ */
+export function autoColumnCount(containerWidth: number, minColumnWidth: number, gap: number): number {
+  const slot = minColumnWidth + gap
+  return slot > 0 ? normalizeColumnCount(Math.floor((containerWidth + gap) / slot)) : 1
+}
+
+/**
  * A usable overscan: a whole number of at least 0 (NaN or a negative value would drop rows that are visible).
  * Infinity stays: it means every row.
  *

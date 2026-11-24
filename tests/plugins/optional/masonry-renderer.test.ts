@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 import { masonryRenderer } from '../../../src/plugins/optional/masonry-renderer.js'
 import type { Kernel, VirtualItem } from '../../../src/types.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
+import type { MasonryRendererAPI } from '../../../src/plugins/optional/masonry-renderer.js'
 
 // Mock kernel
 function createMockKernel(options: {
@@ -479,5 +481,47 @@ describe('masonryRenderer', () => {
 
       expect(plugin.api?.getColumnCount()).toBe(1)
     })
+  })
+})
+
+describe('masonryRenderer column heights', () => {
+  const layout = (itemCount: number) => {
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'clientWidth', { get: () => 320, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+    const kernel = createKernel({ itemCount, estimatedItemHeight: 100 })
+    const plugin = masonryRenderer({ columns: 3, gap: 10, getItemHeight: () => 100 })
+    kernel.register(plugin)
+    kernel.attach(el)
+    const api = plugin.api as MasonryRendererAPI
+    api.recalculate()
+    const result = { heights: api.getColumnHeights(), total: api.getTotalHeight() }
+    kernel.destroy()
+    return result
+  }
+
+  it('should report each column up to its last item, without the gap after it', () => {
+    expect(layout(9)).toEqual({ heights: [320, 320, 320], total: 320 })
+  })
+
+  it('should report an empty column as 0 and the total as the tallest column', () => {
+    expect(layout(2)).toEqual({ heights: [100, 100, 0], total: 100 })
+  })
+
+  it('should report an empty layout once uninstalled', () => {
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'clientWidth', { get: () => 320, configurable: true })
+    Object.defineProperty(el, 'clientHeight', { get: () => 400, configurable: true })
+    const kernel = createKernel({ itemCount: 9, estimatedItemHeight: 100 })
+    const plugin = masonryRenderer({ columns: 3, gap: 10, getItemHeight: () => 100 })
+    kernel.register(plugin)
+    kernel.attach(el)
+    const api = plugin.api as MasonryRendererAPI
+    expect(api.getTotalHeight()).toBe(320)
+    kernel.unregister('masonry-renderer')
+    expect(api.getTotalHeight()).toBe(0)
+    expect(api.getColumnHeights()).toEqual([])
+    expect(api.getVirtualItems()).toEqual([])
+    kernel.destroy()
   })
 })

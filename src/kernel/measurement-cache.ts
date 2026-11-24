@@ -177,21 +177,20 @@ export class MeasurementCache {
     const newCache = new Map<number, number>()
 
     for (const [index, height] of this.cache) {
-      if (index >= startIndex) {
-        const newIndex = index + offset
-        if (newIndex >= 0) {
-          newCache.set(newIndex, height)
-        } else {
-          // Index shifted below 0, remove from totals
-          this.totalMeasured--
-          this.sumOfHeights -= height
-        }
-      } else {
-        newCache.set(index, height)
+      const newIndex = index >= startIndex ? index + offset : index
+      if (newIndex >= 0) {
+        newCache.set(newIndex, height)
       }
     }
 
     this.cache = newCache
+    // Totals follow the entries that survived: a shifted measurement can land on an index that is still measured
+    // (a removal whose shifted range overlaps it), which replaces that entry rather than adding to the totals
+    this.totalMeasured = newCache.size
+    this.sumOfHeights = 0
+    for (const height of newCache.values()) {
+      this.sumOfHeights += height
+    }
   }
 
   /**

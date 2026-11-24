@@ -291,6 +291,20 @@ describe('MeasurementCache', () => {
       expect(cache.get(0)).toBe(100)
       expect(cache.get(1)).toBe(150)
     })
+
+    it('should keep the totals equal to the surviving entries when a shifted measurement collides', () => {
+      const cache = new MeasurementCache(50)
+      cache.set(2, 10)
+      cache.set(5, 20)
+
+      // 3 items removed at index 3: the measurement at 5 lands on 2, which is already measured
+      cache.shiftIndices(3, -3)
+
+      expect(Array.from(cache.getCache().entries())).toEqual([[2, 20]])
+      expect(cache.getMeasuredCount()).toBe(1)
+      expect(cache.getTotalMeasuredSize()).toBe(20)
+      expect(cache.getAverageHeight()).toBe(20)
+    })
   })
 
   describe('getCache', () => {

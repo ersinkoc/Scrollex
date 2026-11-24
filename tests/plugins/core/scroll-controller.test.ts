@@ -3,7 +3,7 @@ import {
   scrollControllerPlugin,
   easings,
 } from '../../../src/plugins/core/scroll-controller.js'
-import type { Kernel } from '../../../src/types.js'
+import type { Kernel, Plugin } from '../../../src/types.js'
 
 // Mock kernel
 function createMockKernel(options: { scrollTop?: number; viewportHeight?: number; totalSize?: number } = {}): Kernel {
@@ -451,6 +451,40 @@ describe('scrollControllerPlugin', () => {
       plugin.install?.(kernel)
 
       expect(() => plugin.api?.stopAnimation()).not.toThrow()
+    })
+
+    it('should end the animation when a programmatic scroll reports the stop from inside the frame', async () => {
+      const writes: number[] = []
+      let top = 0
+      let plugin!: Plugin
+      const reportingKernel = {
+        getScrollPosition: () => ({ scrollTop: top, scrollLeft: 0 }),
+        setScrollPosition: (position: { scrollTop?: number }) => {
+          if (position.scrollTop !== undefined) {
+            top = position.scrollTop
+            writes.push(top)
+            // a host that reports the scroll synchronously lets a listener stop the animation here
+            if (writes.length === 1) plugin.api?.stopAnimation()
+          }
+        },
+        getViewport: () => ({ top, left: 0, width: 300, height: 400, bottom: top + 400, right: 300 }),
+        getOptions: () => ({ direction: 'vertical' }),
+        getTotalSize: () => 2000,
+        getCachedHeight: () => 100,
+        getEstimatedHeight: () => 50,
+        getItemOffset: (index: number) => index * 100,
+        isScrolling: () => false,
+      } as unknown as Kernel
+      plugin = scrollControllerPlugin()
+      plugin.install?.(reportingKernel)
+
+      plugin.api?.scrollTo(1000, { behavior: 'smooth', duration: 100 })
+      await vi.advanceTimersByTimeAsync(16)
+      expect(writes).toHaveLength(1)
+
+      await vi.advanceTimersByTimeAsync(400)
+      expect(writes).toHaveLength(1)
+      expect(plugin.api?.isAnimating()).toBe(false)
     })
   })
 })

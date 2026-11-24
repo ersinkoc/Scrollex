@@ -2,7 +2,7 @@ import React from 'react'
 import { render, act } from '@testing-library/react'
 import { VirtualGrid } from '../../src/react/components/virtual-grid.js'
 import { VirtualMasonry } from '../../src/react/components/virtual-masonry.js'
-import { normalizeColumnCount } from '../../src/utils/array.js'
+import { autoColumnCount, normalizeColumnCount } from '../../src/utils/array.js'
 
 // `columns` that is not a positive integer (0, a fraction, NaN, Infinity) used to divide by zero (grid) or throw
 // "RangeError: Invalid array length" and unmount the tree (masonry): it now counts as the nearest usable value.
@@ -56,5 +56,48 @@ describe('column counts that are not positive integers', () => {
 
   it('should normalize to a whole number of at least 1', () => {
     expect([0, -3, 1, 1.9, 4, Number.NaN, Number.POSITIVE_INFINITY].map(normalizeColumnCount)).toEqual([1, 1, 1, 1, 4, 1, 1])
+  })
+})
+
+describe("columns='auto' with an unusable minColumnWidth", () => {
+  const autoData = Array.from({ length: 30 }, (_, i) => i)
+  const autoItem = ({ item, style }: { item: number; style: React.CSSProperties }) => <div style={style} data-i={item}>{item}</div>
+  async function autoOutcome(kind: 'grid' | 'masonry', minColumnWidth: number) {
+    const errors: string[] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...a) => { errors.push(String(a[0]).slice(0, 60)) })
+    let rows = -1
+    try {
+      let view!: ReturnType<typeof render>
+      await act(async () => {
+        view = render(kind === 'grid'
+          ? <VirtualGrid data={autoData} columns="auto" minColumnWidth={minColumnWidth} itemHeight={50} height={400} renderItem={autoItem} />
+          : <VirtualMasonry data={autoData} columns="auto" minColumnWidth={minColumnWidth} getItemHeight={() => 50} height={400} renderItem={autoItem} />)
+      })
+      rows = view.container.querySelectorAll('[data-i]').length
+      view.unmount()
+    } catch (e) { errors.push('THROW ' + String(e).slice(0, 60)) }
+    spy.mockRestore()
+    return { rows, errors }
+  }
+
+  it.each([['grid', 100], ['masonry', 100]] as const)('should lay out a %s with minColumnWidth=%s (control)', async (kind, w) => {
+    expect((await autoOutcome(kind, w)).rows).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['grid', 0], ['grid', Number.NaN], ['grid', -50], ['masonry', 0], ['masonry', Number.NaN], ['masonry', -50],
+  ] as const)('should lay out a %s with minColumnWidth=%s', async (kind, w) => {
+    const r = await autoOutcome(kind, w)
+    expect(r.errors).toEqual([])
+    expect(r.rows).toBeGreaterThan(0)
+  })
+
+  it('should fit as many columns as the minimum width allows, and one when it cannot be used', () => {
+    expect(autoColumnCount(300, 100, 0)).toBe(3)
+    expect(autoColumnCount(320, 100, 10)).toBe(3)
+    expect(autoColumnCount(300, 0, 0)).toBe(1)
+    expect(autoColumnCount(300, Number.NaN, 0)).toBe(1)
+    expect(autoColumnCount(300, -5, 0)).toBe(1)
+    expect(autoColumnCount(50, 100, 0)).toBe(1)
   })
 })

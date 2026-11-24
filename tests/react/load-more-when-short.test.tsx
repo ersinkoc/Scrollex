@@ -100,6 +100,15 @@ it('edge: grid asks once when its content does not fill the viewport and not whe
   expect(long).not.toHaveBeenCalled()
 })
 
+it('edge: a rejected load is reported instead of becoming an unhandled rejection', async () => {
+  const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const failure = new Error('Load failed')
+  await act(async () => { render(list(items(3), { onLoadMore: () => Promise.reject(failure) })) })
+  await act(async () => {})
+  expect(errorSpy).toHaveBeenCalledWith('[Scrollex] Error in onLoadMore:', failure)
+  errorSpy.mockRestore()
+})
+
 it('edge: masonry asks once when its content does not fill the viewport and not when it does', async () => {
   const short = vi.fn()
   const masonry = (data: number[], onLoadMore: () => void) => (
