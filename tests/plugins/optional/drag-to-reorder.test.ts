@@ -94,12 +94,12 @@ function createDragEvent(type: string, options: {
 
 describe('dragToReorder', () => {
   let kernel: Kernel
-  let onReorder: ReturnType<typeof vi.fn>
+  let onReorder: (fromIndex: number, toIndex: number) => void
 
   beforeEach(() => {
     vi.useFakeTimers()
     kernel = createMockKernel()
-    onReorder = vi.fn()
+    onReorder = vi.fn<(fromIndex: number, toIndex: number) => void>()
   })
 
   afterEach(() => {

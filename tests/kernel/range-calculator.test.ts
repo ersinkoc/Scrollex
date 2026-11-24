@@ -631,7 +631,9 @@ describe('RangeCalculator measurement cost and consistency', () => {
     expect(touched(100_000)).toBeLessThanOrEqual(touched(10_000) * 2 + 1000)
   })
 
-  it('should answer like a plain recomputation after random operations', () => {
+  // 2,400 operation rounds with per-index assertions: CPU-bound, and it passed vitest's 5s default only when the file
+  // ran alone
+  it('should answer like a plain recomputation after random operations', { timeout: 30_000 }, () => {
     let seed = 11
     const random = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296 }
 

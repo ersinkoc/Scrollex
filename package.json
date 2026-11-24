@@ -67,10 +67,7 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm test",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "prepublishOnly": "npm run build && npm test"
   },
   "peerDependencies": {
     "react": ">=17.0.0",
@@ -80,14 +77,13 @@
     "@testing-library/react": "^14.1.2",
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^5.1.1",
     "jsdom": "^23.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "tsup": "^8.0.1",
+    "tsup": "^9.0.0",
     "typescript": "^5.3.3",
-    "vitepress": "^1.0.0",
-    "vitest": "^1.6.1"
+    "vitest": "^5.1.1"
   },
   "engines": {
     "node": ">=18.0.0"

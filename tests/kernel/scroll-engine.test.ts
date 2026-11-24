@@ -34,7 +34,7 @@ describe('ScrollEngine', () => {
       container.scrollTop = 300
       container.dispatchEvent(new Event('scroll'))
       await vi.runOnlyPendingTimersAsync()
-      expect(onScroll.mock.calls[0][0]).toMatchObject({ deltaY: 300, direction: 'down' })
+      expect(onScroll.mock.calls[0]![0]).toMatchObject({ deltaY: 300, direction: 'down' })
     })
 
     it('should report the delta and direction of a programmatic scroll, too', async () => {
@@ -44,12 +44,12 @@ describe('ScrollEngine', () => {
       engine.scrollTo(300)
       container.dispatchEvent(new Event('scroll'))
       await vi.runOnlyPendingTimersAsync()
-      expect(onScroll.mock.calls[0][0]).toMatchObject({ deltaY: 300, direction: 'down' })
+      expect(onScroll.mock.calls[0]![0]).toMatchObject({ deltaY: 300, direction: 'down' })
 
       engine.scrollTo(100)
       container.dispatchEvent(new Event('scroll'))
       await vi.runOnlyPendingTimersAsync()
-      expect(onScroll.mock.calls[1][0]).toMatchObject({ deltaY: -200, direction: 'up' })
+      expect(onScroll.mock.calls[1]![0]).toMatchObject({ deltaY: -200, direction: 'up' })
     })
   })
 
@@ -132,7 +132,7 @@ describe('ScrollEngine', () => {
       await vi.runOnlyPendingTimersAsync()
 
       expect(onScroll).toHaveBeenCalled()
-      expect(onScroll.mock.calls[0][0].type).toBe('scroll')
+      expect(onScroll.mock.calls[0]![0].type).toBe('scroll')
     })
 
     it('should emit scroll start event once', async () => {
@@ -162,7 +162,7 @@ describe('ScrollEngine', () => {
       await vi.advanceTimersByTimeAsync(150)
 
       expect(onScrollEnd).toHaveBeenCalledTimes(1)
-      expect(onScrollEnd.mock.calls[0][0].type).toBe('scroll-end')
+      expect(onScrollEnd.mock.calls[0]![0].type).toBe('scroll-end')
     })
 
     it('should reset scroll end timer on subsequent scroll', async () => {

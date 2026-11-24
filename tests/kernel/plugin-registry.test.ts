@@ -291,7 +291,7 @@ describe('PluginRegistry', () => {
 
       // Emit scroll event
       const scrollEvent = { type: 'scroll', scrollTop: 100, scrollLeft: 0, deltaY: 10, deltaX: 0, direction: 'down', timestamp: Date.now() }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(scrollEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(scrollEvent)
 
       expect(onScroll).toHaveBeenCalledWith(scrollEvent)
     })
@@ -306,7 +306,7 @@ describe('PluginRegistry', () => {
 
       // Emit scroll-start event
       const scrollStartEvent = { type: 'scroll-start', timestamp: Date.now() }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(scrollStartEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(scrollStartEvent)
 
       expect(onScrollStart).toHaveBeenCalledWith(scrollStartEvent)
     })
@@ -321,7 +321,7 @@ describe('PluginRegistry', () => {
 
       // Emit scroll-end event
       const scrollEndEvent = { type: 'scroll-end', timestamp: Date.now() }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(scrollEndEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(scrollEndEvent)
 
       expect(onScrollEnd).toHaveBeenCalledWith(scrollEndEvent)
     })
@@ -338,7 +338,7 @@ describe('PluginRegistry', () => {
       const range = { startIndex: 0, endIndex: 10, overscanStartIndex: 0, overscanEndIndex: 10 }
       const prevRange = { startIndex: 0, endIndex: 5, overscanStartIndex: 0, overscanEndIndex: 5 }
       const rangeChangeEvent = { type: 'visible-range-change', range, previousRange: prevRange }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(rangeChangeEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(rangeChangeEvent)
 
       expect(onVisibleRangeChange).toHaveBeenCalledWith(range, prevRange)
     })
@@ -353,7 +353,7 @@ describe('PluginRegistry', () => {
 
       // Emit item-measured event
       const itemMeasuredEvent = { type: 'item-measured', index: 5, height: 100 }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(itemMeasuredEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(itemMeasuredEvent)
 
       expect(onItemMeasured).toHaveBeenCalledWith(5, 100)
     })
@@ -369,7 +369,7 @@ describe('PluginRegistry', () => {
       // Emit resize event
       const viewport = { top: 0, left: 0, width: 500, height: 700, bottom: 700, right: 500 }
       const resizeEvent = { type: 'resize', viewport }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(resizeEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(resizeEvent)
 
       expect(onResize).toHaveBeenCalledWith(viewport)
     })
@@ -384,7 +384,7 @@ describe('PluginRegistry', () => {
 
       // Emit load-more event
       const loadMoreEvent = { type: 'load-more', direction: 'forward' }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(loadMoreEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(loadMoreEvent)
 
       expect(onLoadMore).toHaveBeenCalledWith('forward')
     })
@@ -399,7 +399,7 @@ describe('PluginRegistry', () => {
 
       // Emit items-change event
       const itemsChangeEvent = { type: 'items-change', count: 150, previousCount: 100 }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(itemsChangeEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(itemsChangeEvent)
 
       expect(onItemsChange).toHaveBeenCalledWith(150, 100)
     })
@@ -534,7 +534,7 @@ describe('PluginRegistry', () => {
 
       // Emit wrong event type
       const wrongEvent = { type: 'scroll-start', timestamp: Date.now() }
-      ;(kernel.emit as ReturnType<typeof vi.fn>)(wrongEvent)
+      ;(kernel.emit as unknown as (event: unknown) => void)(wrongEvent)
 
       // onScroll should not be called since the event type filter should prevent it
       // However, the kernel routing will handle this - let me simulate proper routing

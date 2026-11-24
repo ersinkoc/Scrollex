@@ -48,7 +48,7 @@ describe('useMeasure', () => {
     mockResizeObserverInstance = null
 
     // Mock ResizeObserver
-    globalThis.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn(function (callback) {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver
@@ -348,7 +348,7 @@ describe('useMeasureMany', () => {
     vi.useFakeTimers()
     mockResizeObserverInstance = null
 
-    globalThis.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn(function (callback) {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver
@@ -607,7 +607,7 @@ describe('useMeasure rendering', () => {
   beforeEach(() => {
     mockResizeObserverInstance = null
     // Deliver the initial notification on observe(), as browsers do
-    globalThis.ResizeObserver = vi.fn((callback: ResizeObserverCallback) => {
+    globalThis.ResizeObserver = vi.fn(function (callback: ResizeObserverCallback) {
       const observer = new MockResizeObserver(callback)
       observer.observe = (element: Element) => {
         observer.observedElements.add(element)
@@ -667,7 +667,7 @@ describe('useMeasureMany first commit', () => {
   beforeEach(() => {
     observers = []
     savedObserver = globalThis.ResizeObserver
-    globalThis.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn(function (callback) {
       const observer = new MockResizeObserver(callback)
       observers.push(observer)
       return observer
