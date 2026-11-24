@@ -206,3 +206,44 @@ describe('useVirtualList', () => {
     expect(result.current).toBeDefined()
   })
 })
+
+describe('useVirtualList paddingStart', () => {
+  function paddedContainer(): HTMLDivElement {
+    const container = document.createElement('div')
+    Object.defineProperties(container, {
+      clientWidth: { value: 300, configurable: true },
+      clientHeight: { value: 400, configurable: true },
+      scrollTop: { value: 0, writable: true, configurable: true },
+    })
+    return container
+  }
+
+  it('should push the items down by the padding and keep the total, range and scrollToIndex consistent', () => {
+    const container = paddedContainer()
+    const { result } = renderHook(() =>
+      useVirtualList({ count: 100, estimatedItemHeight: 50, overscan: 0, paddingStart: 100, paddingEnd: 20, containerRef: { current: container } })
+    )
+
+    expect(result.current.virtualItems[0]?.start).toBe(100)
+    expect(result.current.range.endIndex).toBe(5)
+    expect(result.current.totalSize).toBe(5120)
+
+    act(() => { result.current.scrollToIndex(10, { align: 'start' }) })
+    expect(container.scrollTop).toBe(600)
+  })
+
+  it('should re-lay the list out when the padding changes', () => {
+    const container = paddedContainer()
+    let paddingStart = 0
+    const { result, rerender } = renderHook(() =>
+      useVirtualList({ count: 100, estimatedItemHeight: 50, overscan: 0, paddingStart, containerRef: { current: container } })
+    )
+    expect(result.current.virtualItems[0]?.start).toBe(0)
+
+    paddingStart = 100
+    act(() => { rerender() })
+
+    expect(result.current.virtualItems[0]?.start).toBe(100)
+    expect(result.current.totalSize).toBe(5100)
+  })
+})

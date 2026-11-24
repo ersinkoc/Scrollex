@@ -52,7 +52,7 @@ function App() {
 
 ### Purpose
 
-Scrollex is a high-performance React virtualization library designed to efficiently render large datasets (100,000+ items) at 60fps. It uses a micro-kernel architecture with a plugin system, allowing developers to include only the features they need while maintaining a minimal core bundle size (~3KB).
+Scrollex is a high-performance React virtualization library designed to efficiently render large datasets (100,000+ items) at 60fps. It uses a micro-kernel architecture with a plugin system, allowing developers to include only the features they need while maintaining a minimal core bundle size (~5KB).
 
 ### Key Features
 
@@ -117,7 +117,7 @@ Efficiently renders large lists with fixed or variable heights.
 
 | Prop | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `data` | `T[]` | Yes | - | Array of items to render |
+| `data` | `T[]` | Yes | - | Array of items to render (an entry can be `undefined`/`null` for a placeholder: `renderItem` is called for it like for any item) |
 | `renderItem` | `(props: RenderItemProps<T>) => ReactNode` | Yes | - | Function to render each item |
 | `itemHeight` | `number \| 'auto'` | Yes | - | Fixed height or 'auto' for dynamic |
 | `estimatedItemHeight` | `number` | No | `50` | Estimated height for auto measurement |
@@ -238,6 +238,10 @@ Multi-column grid virtualization with gap support.
 | `gap` | `number \| GridGap` | No | `0` | Gap between items |
 | `itemHeight` | `number` | Yes | - | Fixed row height |
 | `renderItem` | `(props: GridRenderItemProps<T>) => ReactNode` | Yes | - | Grid item renderer |
+| `overscan` | `number` | No | `2` | Extra rows to render outside viewport |
+| `role` | `string` | No | `'grid'` | ARIA role |
+
+Vertical only: `direction` and `estimatedItemHeight` are not grid props.
 
 **GridRenderItemProps (extends RenderItemProps):**
 
@@ -300,6 +304,9 @@ Pinterest-style masonry layout with dynamic item heights.
 |------|------|----------|---------|-------------|
 | `getItemHeight` | `(item: T, columnWidth: number) => number` | Yes | - | Calculate item height |
 | `renderItem` | `(props: MasonryRenderItemProps<T>) => ReactNode` | Yes | - | Masonry item renderer |
+| `minColumnWidth` | `number` | No | `200` | Min width for auto columns |
+| `overscan` | `number` | No | `5` | Extra items to render outside viewport |
+| `role` | `string` | No | `'grid'` | ARIA role |
 
 **MasonryRenderItemProps (extends GridRenderItemProps):**
 
@@ -352,9 +359,9 @@ interface UseVirtualListOptions {
   getItemHeight?: (index: number) => number  // Get item height
   estimatedItemHeight?: number               // Default: 50
   overscan?: number                          // Default: 5
-  paddingStart?: number                      // Default: 0
+  paddingStart?: number                      // Default: 0 (space before the first item)
   paddingEnd?: number                        // Default: 0
-  scrollMargin?: number                      // Scroll margin
+  scrollMargin?: number                      // Declared, not used yet
   initialOffset?: number                     // Default: 0
   getItemKey?: (index: number) => string | number
   horizontal?: boolean                       // Default: false
@@ -376,6 +383,7 @@ interface UseVirtualListReturn {
   getMeasurement: (index: number) => number | undefined
   invalidateMeasurement: (index: number) => void
   invalidateAllMeasurements: () => void
+  kernel: Kernel                // Kernel instance driving this virtualizer
 }
 ```
 
@@ -431,8 +439,9 @@ Hook for building custom virtualized grids.
 **Options (extends UseVirtualListOptions):**
 
 ```typescript
-interface UseVirtualGridOptions extends Omit<UseVirtualListOptions, 'getItemHeight'> {
-  columns: number
+interface UseVirtualGridOptions extends Omit<UseVirtualListOptions, 'getItemHeight' | 'estimatedItemHeight' | 'horizontal' | 'paddingStart' | 'paddingEnd' | 'scrollMargin'> {
+  columns: number | 'auto'    // 'auto' fits as many as minColumnWidth allows
+  minColumnWidth?: number     // For 'auto' columns
   rowHeight: number
   gap?: number | GridGap
 }
@@ -504,11 +513,14 @@ Hook for building custom masonry layouts.
 ```typescript
 interface UseVirtualMasonryOptions {
   count: number
-  columns: number
+  columns: number | 'auto'                   // 'auto' fits as many as minColumnWidth allows
+  minColumnWidth?: number                    // Default: 200 (for 'auto' columns)
   getItemHeight: (index: number, columnWidth: number) => number
-  gap?: number
+  gap?: number | GridGap
+  initialOffset?: number                     // Default: 0
+  getItemKey?: (index: number) => string | number
   containerRef: RefObject<HTMLElement>
-  overscan?: number
+  overscan?: number                          // Default: 5
 }
 ```
 
@@ -639,6 +651,8 @@ interface Range {
   endIndex: number            // Last visible item index
   overscanStartIndex: number  // First rendered (with overscan)
   overscanEndIndex: number    // Last rendered (with overscan)
+  start?: number              // Alias for startIndex (only set on the render range)
+  end?: number                // Alias for endIndex (only set on the render range)
 }
 ```
 
@@ -711,6 +725,7 @@ interface KernelOptions {
   overscan: number
   direction: 'vertical' | 'horizontal'
   getItemKey?: (index: number) => string | number
+  paddingStart?: number     // Space before the first item (px), default 0
 }
 ```
 
@@ -726,7 +741,7 @@ interface Kernel {
 
   // Scroll Control
   getScrollPosition(): ScrollPosition
-  setScrollPosition(position: ScrollPosition): void
+  setScrollPosition(position: Partial<ScrollPosition>): void
   scrollTo(offset: number, options?: ScrollOptions): void
   scrollToIndex(index: number, options?: ScrollToIndexOptions): void
 
@@ -836,9 +851,6 @@ easings.easeInOut     // Quadratic ease in-out
 easings.easeInCubic   // Cubic ease in
 easings.easeOutCubic  // Cubic ease out
 easings.easeInOutCubic // Cubic ease in-out
-easings.easeInQuart   // Quartic ease in
-easings.easeOutQuart  // Quartic ease out
-easings.easeInOutQuart // Quartic ease in-out
 ```
 
 ---
@@ -849,7 +861,7 @@ Plugins extend core functionality. Import from `@oxog/scrollex/plugins`.
 
 ### Core Plugins
 
-These are used internally by components but can be used directly with hooks.
+These are used internally by components and hooks: `VirtualList`, `VirtualGrid` and their hooks already register `listRendererPlugin` / `gridRendererPlugin` themselves, so passing one in the `plugins` prop throws "already registered". Use them directly only with a kernel created by `createKernel`.
 
 #### `listRendererPlugin`
 
@@ -864,8 +876,11 @@ interface ListRendererOptions {
 
 interface ListRendererAPI {
   getVirtualItems(): VirtualItem[]
-  getItemAtOffset(offset: number): VirtualItem | null
-  getItemsInRange(start: number, end: number): VirtualItem[]
+  getTotalHeight(): number
+  getStartOffset(): number
+  getEndOffset(): number
+  isItemVisible(index: number): boolean
+  recalculate(): void
 }
 ```
 
@@ -876,17 +891,20 @@ Grid layout calculations and rendering.
 ```typescript
 interface GridRendererOptions {
   columns: number | 'auto'
+  minColumnWidth?: number      // For 'auto' columns
   rowHeight: number
-  gap?: GridGap
+  gap?: number | GridGap
   getItemKey?: (index: number) => string | number
+  getContainerWidth?: () => number | undefined  // Width the columns share (content box of a padded container); default: viewport width
 }
 
 interface GridRendererAPI {
   getVirtualItems(): VirtualItem[]
+  getTotalHeight(): number
   getColumnCount(): number
   getColumnWidth(): number
+  getItemsPerRow(): number
   getRowCount(): number
-  getTotalHeight(): number
   recalculate(): void
 }
 ```
@@ -897,15 +915,19 @@ Automatic height measurement with ResizeObserver.
 
 ```typescript
 interface AutoMeasurerOptions {
-  estimatedHeight?: number
-  measureOnMount?: boolean
+  estimatedItemHeight?: number   // Applied to the kernel only when given
+  measureOnResize?: boolean      // Default: true
+  debounceMs?: number            // Default: 100
 }
 
 interface AutoMeasurerAPI {
-  measure(index: number, element: HTMLElement): void
-  getMeasurement(index: number): number | undefined
+  measureElement(index: number, element: HTMLElement): number
+  getCachedSize(index: number): number | undefined
   invalidate(index: number): void
   invalidateAll(): void
+  getMeasurementCache(): Map<number, number>
+  observe(index: number, element: HTMLElement): void
+  unobserve(element: HTMLElement): void
 }
 ```
 
@@ -1019,8 +1041,8 @@ interface DebugPanelOptions {
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
   theme?: 'light' | 'dark' | 'auto'
   showFps?: boolean              // Default: true
-  showViewportOverlay?: boolean  // Default: false
-  showItemBoundaries?: boolean   // Default: false
+  showViewportOverlay?: boolean  // Default: false (declared, not implemented yet: the switch only changes a flag)
+  showItemBoundaries?: boolean   // Default: false (declared, not implemented yet: the switch only changes a flag)
   logEvents?: boolean            // Default: false
   maxEventLogEntries?: number    // Default: 100
   statsUpdateInterval?: number   // Default: 100ms
@@ -1064,7 +1086,7 @@ import { debugPanel } from '@oxog/scrollex/plugins'
 
 #### `stickyHeaders`
 
-Enables sticky group headers that remain visible while scrolling.
+Tracks which group header is current for the scroll position (`api.getCurrentStickyHeader()`). The plugin does not draw or pin anything and `VirtualList` renders no sticky element: the header row is virtualized away like any other row once its group scrolls past, so render the pinned header yourself (for example above the list, re-reading the api in `onVisibleRangeChange`).
 
 ```typescript
 import { stickyHeaders } from '@oxog/scrollex/plugins'
@@ -1073,7 +1095,7 @@ interface StickyHeadersOptions {
   headerHeight: number | ((groupId: string) => number)
   isHeader: (index: number) => boolean
   getGroupId: (index: number) => string
-  zIndex?: number        // Default: 10
+  zIndex?: number        // Default: 10 (declared, not used yet: the plugin renders nothing)
   stickyOffset?: number  // Default: 0
 }
 
@@ -1161,6 +1183,8 @@ interface KeyboardNavAPI {
 - `PageUp/PageDown` - Jump by page size
 - `Enter/Space` - Select focused item
 - Type characters for type-ahead search
+- With nothing focused, `ArrowDown` / `ArrowRight` focus the first item; other keys are left alone. `Enter` / `Space` only act (and are only claimed) when an item is focused
+- The focus belongs to the list: a plugin created again inline on a parent re-render continues where the previous one was
 
 **Example:**
 
@@ -1230,23 +1254,28 @@ interface ScrollRestorationAPI {
 
 #### `bidirectional`
 
-Bidirectional (prepend and append) loading support.
+Chat-style scrolling: start at the bottom, stick to the bottom for new items, and ask for more data at either edge. Prepending items does not move the reader by itself: call `api.adjustForPrepend(addedHeight)` after prepending.
 
 ```typescript
 import { bidirectional } from '@oxog/scrollex/plugins'
 
 interface BidirectionalOptions {
-  onLoadForward?: () => Promise<void>
-  onLoadBackward?: () => Promise<void>
-  threshold?: number
+  initialPosition?: 'top' | 'bottom'
+  stickToBottom?: boolean               // Follow new items while at the bottom
+  stickThreshold?: number               // Pixels from the bottom that still count as "at the bottom"
+  maintainPositionOnPrepend?: boolean   // Declared, not implemented yet (use api.adjustForPrepend)
+  onLoadMore?: (direction: 'forward' | 'backward') => void   // Once per visit of an edge zone
+  loadMoreThreshold?: number            // Pixels from an edge
 }
 
 interface BidirectionalAPI {
-  loadForward(): Promise<void>
-  loadBackward(): Promise<void>
-  setLoading(direction: 'forward' | 'backward', loading: boolean): void
-  isLoadingForward(): boolean
-  isLoadingBackward(): boolean
+  isAtBottom(): boolean
+  isAtTop(): boolean
+  scrollToBottom(smooth?: boolean): void
+  scrollToTop(smooth?: boolean): void
+  setStickToBottom(stick: boolean): void
+  isStickingToBottom(): boolean
+  adjustForPrepend(prependedHeight: number): void   // Call after prepending, with the added height
 }
 ```
 
@@ -1261,19 +1290,59 @@ import { dragToReorder } from '@oxog/scrollex/plugins'
 
 interface DragToReorderOptions {
   enabled?: boolean
-  axis?: 'x' | 'y' | 'both'
-  onReorder?: (fromIndex: number, toIndex: number) => void
+  axis?: 'vertical' | 'horizontal'
+  handle?: boolean                      // Declared, not used yet
+  autoScroll?: boolean                  // Declared, not implemented yet (the browser scrolls while dragging)
+  autoScrollSpeed?: number              // Declared, not implemented yet
+  dropIndicator?: 'line' | 'gap' | 'none'   // Declared, not used yet: the plugin draws nothing
   onDragStart?: (index: number) => void
   onDragEnd?: (index: number) => void
-  dropIndicatorStyle?: DropIndicatorStyle
+  onReorder: (fromIndex: number, toIndex: number) => void   // Required; called on drop
+  canDrag?: (index: number) => boolean
+  canDrop?: (fromIndex: number, toIndex: number) => boolean
 }
 
 interface DragToReorderAPI {
-  getDraggedIndex(): number | null
-  getDropIndex(): number | null
   isDragging(): boolean
+  getDraggedIndex(): number | null
+  getDropTargetIndex(): number | null
+  cancelDrag(): void
   enable(): void
   disable(): void
+  isEnabled(): boolean
+  getDragHandleProps(index: number): DragHandleProps   // Spread on the row or its handle
+}
+```
+
+`canDrop(fromIndex, toIndex)` is asked with the index the item would end up at, both while dragging (the drop cursor) and on drop (what `onReorder` receives). The rows get their drag props from the plugin's `api`, so keep the plugin in a `useMemo`:
+
+```tsx
+import { useMemo, useState } from 'react'
+import { VirtualList } from '@oxog/scrollex'
+import { dragToReorder } from '@oxog/scrollex/plugins'
+
+function SortableList({ initialItems }: { initialItems: string[] }) {
+  const [items, setItems] = useState(initialItems)
+  const dnd = useMemo(() => dragToReorder({
+    onReorder: (from, to) => setItems((current) => {
+      const next = [...current]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved!)
+      return next
+    }),
+  }), [])
+
+  return (
+    <VirtualList
+      data={items}
+      itemHeight={48}
+      height={400}
+      plugins={[dnd]}
+      renderItem={({ item, index, style }) => (
+        <div style={style} {...dnd.api.getDragHandleProps(index)}>{item}</div>
+      )}
+    />
+  )
 }
 ```
 
@@ -1444,7 +1513,7 @@ function ImageGallery({ images }) {
 
 ### Pattern 6: Grouped List with Sticky Headers
 
-**Use Case:** Contact lists, alphabetical listings, categorized content.
+**Use Case:** Contact lists, alphabetical listings, categorized content. The plugin tracks the current header; pinning it on screen is up to your markup (see `stickyHeaders`).
 
 ```tsx
 import { VirtualList } from '@oxog/scrollex'
@@ -1467,7 +1536,8 @@ function ContactList({ contacts }) {
   return (
     <VirtualList
       data={items}
-      itemHeight={(index) => items[index].type === 'header' ? 40 : 60}
+      itemHeight="auto"
+      estimatedItemHeight={60}
       height={500}
       plugins={[
         stickyHeaders({
@@ -1476,10 +1546,10 @@ function ContactList({ contacts }) {
           getGroupId: (index) => items[index].letter || items[index].name[0],
         })
       ]}
-      renderItem={({ item, style }) => (
+      renderItem={({ item, style, measureRef }) => (
         item.type === 'header'
-          ? <div style={style} className="header">{item.letter}</div>
-          : <div style={style} className="contact">{item.name}</div>
+          ? <div ref={measureRef} style={style} className="header">{item.letter}</div>
+          : <div ref={measureRef} style={style} className="contact">{item.name}</div>
       )}
     />
   )
@@ -1747,8 +1817,9 @@ renderItem={({ item, style, measureRef }) => (
 
 ### Bundle Size
 
-- **Core package:** ~8KB minified
-- **Gzipped:** ~3KB
+- **Core package:** ~19KB minified
+- **Gzipped:** ~5KB
+- **Measured** (esbuild, minified, tree-shaken, `react` external): `createKernel` alone ~19KB / ~5KB gzipped; `VirtualList` ~27KB / ~8KB gzipped; the whole main entry ~47KB / ~14KB gzipped; the plugins entry ~28KB / ~9.5KB gzipped
 - **Tree-shakeable:** Yes - only import what you use
 
 ### Optimization Tips
@@ -1805,7 +1876,7 @@ renderItem={({ item, style, measureRef }) => (
 |---------|---------|
 | Chrome | 80+ |
 | Firefox | 75+ |
-| Safari | 13+ |
+| Safari | 13.1+ |
 | Edge | 80+ |
 
 Required APIs:
@@ -2077,7 +2148,7 @@ const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
 **Features:**
 - Zero runtime dependencies
-- Tree-shakeable exports (~3KB core)
+- Tree-shakeable exports (~5KB core)
 - Full TypeScript support
 - 71%+ test coverage
 

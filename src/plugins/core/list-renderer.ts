@@ -27,37 +27,6 @@ export interface ListRendererAPI {
 }
 
 /**
- * Object pool for VirtualItem reuse.
- */
-class VirtualItemPool {
-  private pool: VirtualItem[] = []
-
-  acquire(): VirtualItem {
-    const item = this.pool.pop()
-    if (item) {
-      return item
-    }
-    return { index: 0, key: 0, start: 0, end: 0, size: 0, lane: 0 }
-  }
-
-  release(item: VirtualItem): void {
-    item.index = 0
-    item.key = 0
-    item.start = 0
-    item.end = 0
-    item.size = 0
-    item.lane = 0
-    this.pool.push(item)
-  }
-
-  releaseAll(items: VirtualItem[]): void {
-    for (const item of items) {
-      this.release(item)
-    }
-  }
-}
-
-/**
  * Creates a list renderer plugin.
  * This is the core virtualization engine for list rendering.
  *
@@ -75,7 +44,6 @@ export function listRendererPlugin(options: ListRendererOptions = {}): Plugin {
     overscanStartIndex: 0,
     overscanEndIndex: 0,
   }
-  const itemPool = new VirtualItemPool()
 
   /**
    * Build virtual items from the current range.
@@ -83,26 +51,26 @@ export function listRendererPlugin(options: ListRendererOptions = {}): Plugin {
   function buildVirtualItems(range: Range): VirtualItem[] {
     if (!kernel) return []
 
-    // Release old items back to pool
-    itemPool.releaseAll(virtualItems)
-
+    // Build fresh items: arrays already returned by getVirtualItems() may still be held by callers
     const items: VirtualItem[] = []
     const visibleStart = range.startIndex
     const visibleEnd = range.endIndex
 
-    for (let i = range.overscanStartIndex; i <= range.overscanEndIndex; i++) {
-      const item = itemPool.acquire()
+    // Never build items past the real item count (an empty list has none; the range may be stale)
+    const lastIndex = Math.min(range.overscanEndIndex, kernel.getItemCount() - 1)
+
+    for (let i = range.overscanStartIndex; i <= lastIndex; i++) {
       const offset = kernel.getItemOffset(i)
       const size = kernel.getCachedHeight(i) ?? kernel.getEstimatedHeight()
 
-      item.index = i
-      item.key = getItemKey(i)
-      item.start = offset
-      item.end = offset + size
-      item.size = size
-      item.lane = 0 // For list, always lane 0
-
-      items.push(item)
+      items.push({
+        index: i,
+        key: getItemKey(i),
+        start: offset,
+        end: offset + size,
+        size,
+        lane: 0, // For list, always lane 0
+      })
     }
 
     return items
@@ -139,6 +107,8 @@ export function listRendererPlugin(options: ListRendererOptions = {}): Plugin {
     },
 
     isItemVisible(index: number): boolean {
+      // An empty list reports the range 0..0, which is not an item
+      if (!kernel || index >= kernel.getItemCount()) return false
       return index >= currentRange.startIndex && index <= currentRange.endIndex
     },
 
@@ -156,7 +126,6 @@ export function listRendererPlugin(options: ListRendererOptions = {}): Plugin {
     },
 
     uninstall(): void {
-      itemPool.releaseAll(virtualItems)
       virtualItems = []
       kernel = null
     },

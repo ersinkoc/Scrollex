@@ -61,6 +61,19 @@ export interface KeyboardNavAPI {
   clearTypeahead(): void
 }
 
+/** The focused index per kernel, shared by the plugin instances that are created for it one after another. */
+const focusByKernel = new WeakMap<Kernel, number | null>()
+
+/**
+ * Whether a keydown target is a text-editing element whose keys must not be hijacked.
+ */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return true
+  const tag = target.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+}
+
 /**
  * Creates a keyboard navigation plugin.
  * Provides accessible keyboard navigation for virtualized lists.
@@ -74,6 +87,7 @@ export interface KeyboardNavAPI {
  *
  * <VirtualList
  *   data={items}
+ *   itemHeight={40}
  *   plugins={[keyboardNav({
  *     loop: true,
  *     orientation: 'vertical',
@@ -105,6 +119,14 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
   let typeaheadTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
+   * Keep the focus with the kernel, so that a plugin created again for it (an inline
+   * `plugins={[keyboardNav(...)]}` is re-installed on every parent render) continues where this one was.
+   */
+  function rememberFocus(): void {
+    if (kernel) focusByKernel.set(kernel, focusedIndex)
+  }
+
+  /**
    * Get the item count.
    */
   function getItemCount(): number {
@@ -121,24 +143,53 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
   }
 
   /**
+   * Scroll the focused item into view. A grid publishes its cells to the kernel with an averaged size
+   * (rowHeight / columns), so kernel.scrollToIndex would place an item of a lower row by its cell position:
+   * the grid case works on rows, whose pitch is the kernel's total size over the number of rows.
+   */
+  function revealIndex(index: number): void {
+    if (!kernel) return
+    if (orientation !== 'grid' || columns <= 1) {
+      kernel.scrollToIndex(index, { align: 'auto' })
+      return
+    }
+
+    const rows = Math.ceil(getItemCount() / columns)
+    if (rows === 0) return
+    const pitch = kernel.getTotalSize() / rows
+    const top = Math.floor(index / columns) * pitch
+    const bottom = top + pitch
+    const viewportHeight = kernel.getViewport().height
+    const scrollTop = kernel.getScrollPosition().scrollTop
+
+    if (top < scrollTop) {
+      kernel.scrollTo(top)
+    } else if (bottom > scrollTop + viewportHeight) {
+      kernel.scrollTo(bottom - viewportHeight)
+    }
+  }
+
+  /**
    * Set focused index with bounds checking.
    */
-  function setFocus(index: number | null): void {
+  function setFocus(index: number | null, wrap = true): void {
     if (index === null) {
       focusedIndex = null
+      rememberFocus()
       return
     }
 
     const count = getItemCount()
     if (count === 0) {
       focusedIndex = null
+      rememberFocus()
       return
     }
 
     let newIndex = index
 
-    if (loop) {
-      // Wrap around
+    if (loop && wrap) {
+      // Wrap around (single steps only: page jumps stop at the ends)
       if (newIndex < 0) {
         newIndex = count - 1
       } else if (newIndex >= count) {
@@ -151,10 +202,11 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
 
     if (newIndex !== focusedIndex) {
       focusedIndex = newIndex
+      rememberFocus()
       onFocus?.(newIndex)
 
       // Scroll focused item into view
-      kernel?.scrollToIndex(newIndex, { align: 'auto' })
+      revealIndex(newIndex)
     }
   }
 
@@ -163,6 +215,9 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
    */
   function handleKeyDown(event: KeyboardEvent): void {
     if (!enabled || !kernel) return
+
+    // The listener is document-wide; leave typing in form fields alone
+    if (isEditableTarget(event.target)) return
 
     // Call custom handler first
     if (onKeyDown) {
@@ -173,22 +228,24 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
       }
     }
 
+    // Alt / Ctrl / Meta combinations belong to the browser and the OS (Alt+Left = back, Ctrl+Home = page top)
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+
     const count = getItemCount()
     if (count === 0) return
 
-    // Initialize focus if not set
-    if (focusedIndex === null && count > 0) {
-      setFocus(0)
-    }
+    // Type-ahead needs to know whether anything was focused before this key
+    const focusBeforeKey = focusedIndex
 
+    // Only keys that act on the focus start it: with nothing focused, moving forward lands on the first item
     switch (event.key) {
       case 'ArrowDown':
         if (orientation === 'vertical' || orientation === 'grid') {
           event.preventDefault()
-          if (orientation === 'grid') {
-            setFocus((focusedIndex ?? 0) + columns)
+          if (focusedIndex === null) {
+            setFocus(0)
           } else {
-            setFocus((focusedIndex ?? 0) + 1)
+            setFocus(focusedIndex + (orientation === 'grid' ? columns : 1))
           }
         }
         break
@@ -207,7 +264,7 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
       case 'ArrowRight':
         if (orientation === 'horizontal' || orientation === 'grid') {
           event.preventDefault()
-          setFocus((focusedIndex ?? 0) + 1)
+          setFocus(focusedIndex === null ? 0 : focusedIndex + 1)
         }
         break
 
@@ -230,18 +287,19 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
 
       case 'PageUp':
         event.preventDefault()
-        setFocus((focusedIndex ?? 0) - pageSize)
+        setFocus((focusedIndex ?? 0) - pageSize, false)
         break
 
       case 'PageDown':
         event.preventDefault()
-        setFocus((focusedIndex ?? 0) + pageSize)
+        setFocus((focusedIndex ?? 0) + pageSize, false)
         break
 
       case 'Enter':
       case ' ':
-        event.preventDefault()
+        // Nothing focused: the key is not ours (Space scrolls the page, Enter activates buttons)
         if (focusedIndex !== null) {
+          event.preventDefault()
           onSelect?.(focusedIndex)
         }
         break
@@ -250,7 +308,7 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
         // Type-ahead search
         if (typeahead && event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
           event.preventDefault()
-          handleTypeahead(event.key)
+          handleTypeahead(event.key, focusBeforeKey)
         }
         break
     }
@@ -259,7 +317,7 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
   /**
    * Handle type-ahead search.
    */
-  function handleTypeahead(char: string): void {
+  function handleTypeahead(char: string, focusBeforeKey: number | null): void {
     if (!kernel) return
 
     // Clear previous timer
@@ -272,7 +330,11 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
 
     // Search for matching item
     const count = getItemCount()
-    const startIndex = focusedIndex !== null ? focusedIndex + 1 : 0
+    // A new search starts after the focused item (first item when nothing was focused); a longer
+    // prefix keeps the focused item as long as it still matches
+    const startIndex = typeaheadBuffer.length > 1
+      ? (focusedIndex ?? 0)
+      : focusBeforeKey !== null ? focusBeforeKey + 1 : 0
 
     for (let i = 0; i < count; i++) {
       const index = (startIndex + i) % count
@@ -358,6 +420,11 @@ export function keyboardNav(options: KeyboardNavOptions = {}): Plugin {
 
     install(k: Kernel): void {
       kernel = k
+
+      // Continue with the focus of a previous instance for this kernel (kept while the list shrinks)
+      const remembered = focusByKernel.get(k) ?? null
+      const count = k.getItemCount()
+      focusedIndex = remembered === null || count === 0 ? null : Math.min(remembered, count - 1)
 
       // Add keyboard listener to document
       // Note: In a real implementation, this should be scoped to the container

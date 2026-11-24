@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
-import { infiniteLoaderPlugin, type LoadDirection } from '../../../src/plugins/core/infinite-loader.js'
+import { infiniteLoaderPlugin, type LoadDirection, type InfiniteLoaderAPI } from '../../../src/plugins/core/infinite-loader.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
 import type { Kernel, ScrollEvent, Range } from '../../../src/types.js'
 
 // Mock kernel
@@ -501,5 +502,226 @@ describe('infiniteLoaderPlugin', () => {
 
       consoleSpy.mockRestore()
     })
+  })
+})
+
+describe('infiniteLoaderPlugin superseded loads', () => {
+  function setup() {
+    const resolvers: Array<() => void> = []
+    const onLoadMore = vi.fn(() => new Promise<void>((resolve) => { resolvers.push(resolve) }))
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 50, overscan: 0, direction: 'vertical' })
+    const plugin = infiniteLoaderPlugin({ onLoadMore })
+    kernel.register(plugin)
+    return { kernel, plugin, api: plugin.api as InfiniteLoaderAPI, onLoadMore, resolvers }
+  }
+
+  async function flush(): Promise<void> {
+    for (let i = 0; i < 5; i++) await Promise.resolve()
+  }
+
+  it('should keep a newer load locked when a load superseded by reset completes', async () => {
+    const { api, onLoadMore, resolvers } = setup()
+    api.triggerLoad('forward')
+    api.reset()
+    api.triggerLoad('forward')
+
+    resolvers[0]!()
+    await flush()
+
+    expect(api.isLoading()).toBe(true)
+    api.triggerLoad('forward')
+    expect(onLoadMore).toHaveBeenCalledTimes(2)
+  })
+
+  it('should keep the load in flight locked across a reinstall and release it when that load completes', async () => {
+    const { kernel, plugin, api, onLoadMore, resolvers } = setup()
+    api.triggerLoad('forward')
+    kernel.unregister('infinite-loader')
+    kernel.register(plugin)
+
+    expect(api.isLoading()).toBe(true)
+    api.triggerLoad('forward')
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+    resolvers[0]!()
+    await flush()
+
+    expect(api.isLoading()).toBe(false)
+    api.triggerLoad('forward')
+    expect(onLoadMore).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('infiniteLoaderPlugin created again for the same kernel', () => {
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 6; i++) await Promise.resolve()
+  }
+
+  function setup() {
+    const resolvers: Array<() => void> = []
+    const onLoadMore = vi.fn(() => new Promise<void>((resolve) => { resolvers.push(resolve) }))
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 50, overscan: 0, direction: 'vertical' })
+    return { kernel, resolvers, onLoadMore }
+  }
+
+  it('should share the load in flight and release it when that load settles', async () => {
+    const { kernel, resolvers, onLoadMore } = setup()
+    const first = infiniteLoaderPlugin({ onLoadMore })
+    kernel.register(first)
+    ;(first.api as InfiniteLoaderAPI).triggerLoad('forward')
+    kernel.unregister('infinite-loader')
+    const second = infiniteLoaderPlugin({ onLoadMore })
+    kernel.register(second)
+    const api = second.api as InfiniteLoaderAPI
+
+    expect(api.isLoading()).toBe(true)
+    api.triggerLoad('forward')
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+    resolvers[0]!()
+    await settle()
+    expect(api.isLoading()).toBe(false)
+  })
+
+  it('should share the has-more flags, restore the defaults on reset and not leak to another kernel', () => {
+    const first = setup()
+    const a = infiniteLoaderPlugin({ onLoadMore: first.onLoadMore })
+    first.kernel.register(a)
+    ;(a.api as InfiniteLoaderAPI).setHasMore(false)
+    first.kernel.unregister('infinite-loader')
+    const b = infiniteLoaderPlugin({ onLoadMore: first.onLoadMore })
+    first.kernel.register(b)
+    expect((b.api as InfiniteLoaderAPI).hasMore()).toBe(false)
+
+    ;(b.api as InfiniteLoaderAPI).reset()
+    expect((b.api as InfiniteLoaderAPI).hasMoreForward()).toBe(true)
+
+    const second = setup()
+    const c = infiniteLoaderPlugin({ onLoadMore: second.onLoadMore })
+    second.kernel.register(c)
+    ;(b.api as InfiniteLoaderAPI).setHasMore(false)
+    expect((c.api as InfiniteLoaderAPI).hasMore()).toBe(true)
+  })
+})
+
+describe('infiniteLoaderPlugin scroll check debounce', () => {
+  let now = 1000
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    now = 1000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  function setup() {
+    const onLoadMore = vi.fn(async () => {})
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 50 })
+    // thresholdItems -1: the visible-range check can never fire, only the pixel check is under test
+    const plugin = infiniteLoaderPlugin({ threshold: 200, thresholdItems: -1, onLoadMore })
+    kernel.register(plugin)
+    const scroll = (scrollTop: number) => kernel.emit({ type: 'scroll', scrollTop, scrollLeft: 0, deltaY: 0, deltaX: 0, direction: 'down', timestamp: now })
+    const wait = (ms: number) => { now += ms; vi.advanceTimersByTime(ms) }
+    return { kernel, onLoadMore, scroll, wait, api: plugin.api as InfiniteLoaderAPI }
+  }
+
+  it('should check the last event of a gesture that ended inside the debounce window', () => {
+    const { kernel, onLoadMore, scroll, wait } = setup()
+
+    scroll(100) // far from the end; opens the window
+    wait(30)
+    scroll(4900) // inside the bottom zone, and the last event
+    expect(onLoadMore).not.toHaveBeenCalled()
+    wait(400)
+
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+    expect(onLoadMore).toHaveBeenCalledWith('forward')
+    kernel.destroy()
+  })
+
+  it('should check only the newest of several events inside the window', () => {
+    const { kernel, onLoadMore, scroll, wait } = setup()
+
+    scroll(100)
+    wait(20)
+    scroll(4900) // would load...
+    wait(20)
+    scroll(300) // ...but the reader went back up
+    wait(400)
+
+    expect(onLoadMore).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should not check again after the plugin was uninstalled', () => {
+    const { kernel, onLoadMore, scroll, wait } = setup()
+
+    scroll(100)
+    wait(30)
+    scroll(4900)
+    kernel.unregister('infinite-loader')
+    wait(400)
+
+    expect(onLoadMore).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should drop a check queued before reset()', () => {
+    const { kernel, onLoadMore, scroll, wait, api } = setup()
+
+    scroll(100)
+    wait(30)
+    scroll(4900) // queued for the end of the window
+    wait(10)
+    api.reset() // a new dataset: the queued check belongs to the previous one
+    wait(400)
+
+    expect(onLoadMore).not.toHaveBeenCalled()
+    kernel.destroy()
+  })
+
+  it('should still load right away for an event outside the window (control)', () => {
+    const { kernel, onLoadMore, scroll, wait } = setup()
+
+    scroll(100)
+    wait(150)
+    scroll(4900)
+
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+    kernel.destroy()
+  })
+})
+
+describe('infiniteLoaderPlugin on a horizontal list', () => {
+  function loadsAt(horizontal: boolean, offset: number): LoadDirection[] {
+    vi.useFakeTimers()
+    const container = document.createElement('div')
+    Object.defineProperty(container, 'clientWidth', { get: () => 300, configurable: true })
+    Object.defineProperty(container, 'clientHeight', { get: () => 400, configurable: true })
+    const calls: LoadDirection[] = []
+    const kernel = createKernel({ itemCount: 100, estimatedItemHeight: 100, overscan: 0, direction: horizontal ? 'horizontal' : 'vertical' })
+    kernel.register(infiniteLoaderPlugin({ direction: 'both', threshold: 200, thresholdItems: -1, onLoadMore: (d) => { calls.push(d) } }))
+    kernel.attach(container)
+    vi.advanceTimersByTime(1000)
+    kernel.emit({ type: 'scroll', scrollTop: horizontal ? 0 : offset, scrollLeft: horizontal ? offset : 0, deltaY: 0, deltaX: 0, direction: 'none', timestamp: 0 } as ScrollEvent)
+    kernel.destroy()
+    vi.useRealTimers()
+    return calls
+  }
+
+  it('should load forward and backward by the vertical position in a vertical list (control)', () => {
+    expect(loadsAt(false, 5000)).toEqual([])
+    expect(loadsAt(false, 9700)).toEqual(['forward'])
+    expect(loadsAt(false, 0)).toEqual(['backward'])
+  })
+
+  it('should use scrollLeft and the viewport width in a horizontal list', () => {
+    expect(loadsAt(true, 5000)).toEqual([])
+    expect(loadsAt(true, 9800)).toEqual(['forward'])
+    expect(loadsAt(true, 0)).toEqual(['backward'])
   })
 })

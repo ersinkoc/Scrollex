@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
 import { PluginRegistry } from '../../src/kernel/plugin-registry.js'
+import { createKernel } from '../../src/kernel/kernel.js'
 import type { Plugin, Kernel, PluginHooks } from '../../src/types.js'
 
 // Create mock kernel
@@ -538,5 +539,37 @@ describe('PluginRegistry', () => {
       // onScroll should not be called since the event type filter should prevent it
       // However, the kernel routing will handle this - let me simulate proper routing
     })
+  })
+})
+
+describe('PluginRegistry teardown with a throwing uninstall', () => {
+  function plugin(name: string, uninstall: () => void): Plugin {
+    return { name, version: '1.0.0', type: 'optional', install: () => {}, uninstall }
+  }
+
+  it('should uninstall every plugin and clear handlers when kernel.destroy meets a throwing uninstall', () => {
+    const kernel = createKernel()
+    const firstUninstall = vi.fn()
+    kernel.register(plugin('first', firstUninstall))
+    kernel.register(plugin('bad', () => { throw new Error('boom') }))
+    const handler = vi.fn()
+    kernel.on('scroll', handler)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() => kernel.destroy()).not.toThrow()
+    kernel.emit({ type: 'scroll', scrollTop: 0, scrollLeft: 0 } as never)
+
+    expect(firstUninstall).toHaveBeenCalledTimes(1)
+    expect(handler).not.toHaveBeenCalled()
+    expect(kernel.listPlugins()).toEqual([])
+    errorSpy.mockRestore()
+  })
+
+  it('should remove a plugin whose uninstall throws on direct unregister', () => {
+    const registry = new PluginRegistry()
+    registry.register(plugin('bad', () => { throw new Error('boom') }))
+
+    expect(() => registry.unregister('bad')).toThrow('boom')
+    expect(registry.has('bad')).toBe(false)
   })
 })

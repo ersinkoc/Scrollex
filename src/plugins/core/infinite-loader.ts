@@ -45,6 +45,20 @@ export interface InfiniteLoaderAPI {
   triggerLoad(direction: LoadDirection): void
 }
 
+interface LoaderState {
+  loading: boolean
+  loadGeneration: number
+  hasMoreForward: boolean
+  hasMoreBackward: boolean
+}
+
+function initialLoaderState(direction: LoadDirection | 'both'): LoaderState {
+  return { loading: false, loadGeneration: 0, hasMoreForward: true, hasMoreBackward: direction === 'backward' || direction === 'both' }
+}
+
+/** Loader state per kernel, shared by the instances that are created for it one after another. */
+const sharedLoaderStates = new WeakMap<Kernel, LoaderState>()
+
 /**
  * Creates an infinite loader plugin.
  * Handles infinite scroll detection and triggering.
@@ -61,33 +75,58 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
   } = options
 
   let kernel: Kernel | null = null
-  let loading = false
-  let hasMoreForward = true
-  let hasMoreBackward = direction === 'backward' || direction === 'both'
+  // Shared by every instance created for the same kernel (see sharedLoaderStates)
+  // loadGeneration is bumped per load and on reset; a superseded load must not clear a newer load's flag
+  let state = initialLoaderState(direction)
   let lastCheckTime = 0
   const checkDebounceMs = 100
+  // The newest scroll event that arrived inside the debounce window; it is checked when the window ends
+  let pendingEvent: ScrollEvent | null = null
+  let trailingTimer: ReturnType<typeof setTimeout> | null = null
 
   /**
    * Check if we should load more based on scroll position.
    */
   function checkLoadMore(event: ScrollEvent): void {
-    if (loading || !kernel) return
+    if (state.loading || !kernel) return
 
-    // Debounce checks
+    // Debounce checks: an event inside the window is not dropped, the last one is checked when the window ends
+    // (a reader who stops inside the threshold zone produces no further event)
     const now = performance.now()
-    if (now - lastCheckTime < checkDebounceMs) return
-    lastCheckTime = now
+    if (now - lastCheckTime < checkDebounceMs) {
+      pendingEvent = event
+      if (trailingTimer === null) {
+        trailingTimer = setTimeout(() => {
+          trailingTimer = null
+          const latest = pendingEvent
+          pendingEvent = null
+          if (latest) runCheck(latest)
+        }, Math.max(0, checkDebounceMs - (now - lastCheckTime)))
+      }
+      return
+    }
+
+    runCheck(event)
+  }
+
+  function runCheck(event: ScrollEvent): void {
+    if (state.loading || !kernel) return
+
+    lastCheckTime = performance.now()
 
     const viewport = kernel.getViewport()
     const totalSize = kernel.getTotalSize()
-    const { scrollTop } = event
+    // The list's own axis: a horizontal list scrolls (and is measured) along x
+    const horizontal = kernel.getOptions().direction === 'horizontal'
+    const scrollTop = horizontal ? event.scrollLeft : event.scrollTop
+    const viewportSize = horizontal ? viewport.width : viewport.height
 
     // Check forward (bottom)
     if (
       (direction === 'forward' || direction === 'both') &&
-      hasMoreForward
+      state.hasMoreForward
     ) {
-      const distanceFromBottom = totalSize - scrollTop - viewport.height
+      const distanceFromBottom = totalSize - scrollTop - viewportSize
       if (distanceFromBottom < threshold) {
         triggerLoad('forward')
         return
@@ -97,7 +136,7 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
     // Check backward (top)
     if (
       (direction === 'backward' || direction === 'both') &&
-      hasMoreBackward
+      state.hasMoreBackward
     ) {
       if (scrollTop < threshold) {
         triggerLoad('backward')
@@ -109,15 +148,15 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
   /**
    * Check if we should load more based on visible range.
    */
-  function checkLoadMoreByRange(range: Range): void {
-    if (loading || !kernel) return
+  function checkLoadMoreByRange(range: Range, forwardOnly = false): void {
+    if (state.loading || !kernel) return
 
     const itemCount = kernel.getItemCount()
 
     // Check forward
     if (
       (direction === 'forward' || direction === 'both') &&
-      hasMoreForward
+      state.hasMoreForward
     ) {
       const itemsFromEnd = itemCount - 1 - range.endIndex
       if (itemsFromEnd <= thresholdItems) {
@@ -128,8 +167,9 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
 
     // Check backward
     if (
+      !forwardOnly &&
       (direction === 'backward' || direction === 'both') &&
-      hasMoreBackward
+      state.hasMoreBackward
     ) {
       if (range.startIndex <= thresholdItems) {
         triggerLoad('backward')
@@ -142,13 +182,14 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
    * Trigger loading in a direction.
    */
   async function triggerLoad(loadDirection: LoadDirection): Promise<void> {
-    if (loading || !kernel) return
+    if (state.loading || !kernel) return
 
     // Check if we should load in this direction
-    if (loadDirection === 'forward' && !hasMoreForward) return
-    if (loadDirection === 'backward' && !hasMoreBackward) return
+    if (loadDirection === 'forward' && !state.hasMoreForward) return
+    if (loadDirection === 'backward' && !state.hasMoreBackward) return
 
-    loading = true
+    state.loading = true
+    const generation = ++state.loadGeneration
 
     // Emit load-more event
     kernel.emit({
@@ -161,48 +202,59 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
     } catch (error) {
       console.error('[Scrollex] Error in onLoadMore:', error)
     } finally {
-      loading = false
+      if (generation === state.loadGeneration) {
+        state.loading = false
+      }
     }
   }
 
   const api: InfiniteLoaderAPI = {
     isLoading(): boolean {
-      return loading
+      return state.loading
     },
 
     setLoading(l: boolean): void {
-      loading = l
+      state.loading = l
     },
 
     hasMore(): boolean {
-      return hasMoreForward || hasMoreBackward
+      return state.hasMoreForward || state.hasMoreBackward
     },
 
     setHasMore(hasMore: boolean): void {
-      hasMoreForward = hasMore
-      hasMoreBackward = hasMore
+      state.hasMoreForward = hasMore
+      state.hasMoreBackward = hasMore
     },
 
     hasMoreForward(): boolean {
-      return hasMoreForward
+      return state.hasMoreForward
     },
 
     setHasMoreForward(hasMore: boolean): void {
-      hasMoreForward = hasMore
+      state.hasMoreForward = hasMore
     },
 
     hasMoreBackward(): boolean {
-      return hasMoreBackward
+      return state.hasMoreBackward
     },
 
     setHasMoreBackward(hasMore: boolean): void {
-      hasMoreBackward = hasMore
+      state.hasMoreBackward = hasMore
     },
 
     reset(): void {
-      loading = false
-      hasMoreForward = true
-      hasMoreBackward = direction === 'backward' || direction === 'both'
+      state.loadGeneration++
+      state.loading = false
+      state.hasMoreForward = true
+      state.hasMoreBackward = direction === 'backward' || direction === 'both'
+
+      // A check queued by the debounce window belongs to the dataset that is being replaced: it would load
+      // more for a position the reader no longer has
+      if (trailingTimer !== null) {
+        clearTimeout(trailingTimer)
+        trailingTimer = null
+      }
+      pendingEvent = null
     },
 
     triggerLoad(loadDirection: LoadDirection): void {
@@ -217,11 +269,29 @@ export function infiniteLoaderPlugin(options: InfiniteLoaderOptions): Plugin {
 
     install(k: Kernel): void {
       kernel = k
+      // Re-created for the same kernel (an inline `plugins={[infiniteLoaderPlugin(...)]}` is re-installed on
+      // every parent render): carry on with the load in flight and the has-more flags
+      const shared = sharedLoaderStates.get(k)
+      if (shared) {
+        state = shared
+      } else {
+        sharedLoaderStates.set(k, state)
+        // The range the kernel announced before this plugin existed is not replayed, and a list that fits its
+        // viewport gets no scroll event: look at where the list stands once, when the first instance is installed
+        // (forward only: the start of a list that is about to be scrolled to its end is not a reason to load)
+        checkLoadMoreByRange(k.getVisibleRange(), true)
+      }
     },
 
     uninstall(): void {
+      if (trailingTimer !== null) {
+        clearTimeout(trailingTimer)
+        trailingTimer = null
+      }
+      pendingEvent = null
+
+      // The state stays with the kernel: a load that is still running clears its own flag when it settles
       kernel = null
-      loading = false
     },
 
     hooks: {

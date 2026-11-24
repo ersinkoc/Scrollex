@@ -67,6 +67,7 @@ export default function Layout({ children }: LayoutProps) {
               href="https://github.com/ersinkoc/Scrollex"
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="GitHub"
               className="sm:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all"
             >
               <Github className="w-5 h-5" />
@@ -75,6 +76,8 @@ export default function Layout({ children }: LayoutProps) {
             {/* Mobile menu button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
               className="md:hidden p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -138,6 +141,7 @@ export default function Layout({ children }: LayoutProps) {
                 href="https://github.com/ersinkoc/Scrollex"
                 target="_blank"
                 rel="noopener noreferrer"
+                aria-label="Scrollex on GitHub"
                 className="text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Github className="w-5 h-5" />

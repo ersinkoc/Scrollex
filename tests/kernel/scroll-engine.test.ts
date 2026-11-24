@@ -26,6 +26,33 @@ describe('ScrollEngine', () => {
     vi.useRealTimers()
   })
 
+  describe('scroll event deltas', () => {
+    it('should report the delta and direction of a scroll the container made itself (control)', async () => {
+      const onScroll = vi.fn()
+      engine.attach(container)
+      engine.onScroll(onScroll)
+      container.scrollTop = 300
+      container.dispatchEvent(new Event('scroll'))
+      await vi.runOnlyPendingTimersAsync()
+      expect(onScroll.mock.calls[0][0]).toMatchObject({ deltaY: 300, direction: 'down' })
+    })
+
+    it('should report the delta and direction of a programmatic scroll, too', async () => {
+      const onScroll = vi.fn()
+      engine.attach(container)
+      engine.onScroll(onScroll)
+      engine.scrollTo(300)
+      container.dispatchEvent(new Event('scroll'))
+      await vi.runOnlyPendingTimersAsync()
+      expect(onScroll.mock.calls[0][0]).toMatchObject({ deltaY: 300, direction: 'down' })
+
+      engine.scrollTo(100)
+      container.dispatchEvent(new Event('scroll'))
+      await vi.runOnlyPendingTimersAsync()
+      expect(onScroll.mock.calls[1][0]).toMatchObject({ deltaY: -200, direction: 'up' })
+    })
+  })
+
   describe('attach', () => {
     it('should attach to container', () => {
       engine.attach(container)
@@ -219,6 +246,18 @@ describe('ScrollEngine', () => {
       expect(engine.getScrollPosition().scrollTop).toBe(300)
     })
 
+    it('should scroll instantly with smooth behavior and a negative or NaN duration', () => {
+      engine.attach(container)
+
+      for (const duration of [-100, Number.NaN]) {
+        engine.scrollTo(300, { behavior: 'smooth', duration })
+
+        expect(engine.getScrollPosition().scrollTop).toBe(300)
+        expect(engine.isAnimating()).toBe(false)
+        engine.scrollTo(0)
+      }
+    })
+
     it('should animate with smooth behavior', async () => {
       engine.attach(container)
       engine.scrollTo(500, { behavior: 'smooth', duration: 100 })
@@ -407,5 +446,59 @@ describe('easings', () => {
     expect(easings.easeInOutCubic(0.5)).toBe(0.5)
     expect(easings.easeInOutCubic(0.25)).toBeCloseTo(0.0625)
     expect(easings.easeInOutCubic(0.75)).toBeCloseTo(0.9375)
+  })
+})
+
+describe('ScrollEngine detach during a scroll', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('should end the scroll once when detached mid-scroll', () => {
+    vi.useFakeTimers()
+    const engine = new ScrollEngine()
+    const container = document.createElement('div')
+    const onEnd = vi.fn()
+    engine.onScrollEnd(onEnd)
+    engine.attach(container)
+
+    container.scrollTop = 200
+    container.dispatchEvent(new Event('scroll'))
+    vi.advanceTimersByTime(20)
+    expect(engine.isScrolling()).toBe(true)
+
+    engine.detach()
+    vi.advanceTimersByTime(1000)
+
+    expect(engine.isScrolling()).toBe(false)
+    expect(onEnd).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ScrollEngine position cache vs the container', () => {
+  // A container that clamps scrollTop / scrollLeft to its scrollable range, like a browser does
+  function clampingContainer(maxTop: number, maxLeft = 0): HTMLElement {
+    let top = 0
+    let left = 0
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'scrollTop', { get: () => top, set: (v: number) => { top = Math.max(0, Math.min(maxTop, v)) }, configurable: true })
+    Object.defineProperty(el, 'scrollLeft', { get: () => left, set: (v: number) => { left = Math.max(0, Math.min(maxLeft, v)) }, configurable: true })
+    return el
+  }
+
+  it('should cache the clamped position when the request is beyond the scrollable range', () => {
+    const engine = new ScrollEngine()
+    const el = clampingContainer(1000, 500)
+    engine.attach(el)
+
+    engine.setScrollPosition({ scrollTop: 300 })
+    expect(engine.getScrollPosition().scrollTop).toBe(300)
+
+    engine.setScrollPosition({ scrollTop: 100000, scrollLeft: 9999 })
+    expect(engine.getScrollPosition()).toEqual({ scrollTop: 1000, scrollLeft: 500 })
+
+    engine.setScrollPosition({ scrollTop: -50 })
+    expect(engine.getScrollPosition()).toEqual({ scrollTop: 0, scrollLeft: 500 })
+    engine.detach()
   })
 })

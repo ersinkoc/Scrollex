@@ -26,6 +26,8 @@ function useDebugPanelState(plugin: Plugin): DebugPanelState {
   const [state, setState] = useState<DebugPanelState>(api.getState())
 
   useEffect(() => {
+    // Take the plugin's current state: it may have changed since the render, and this may be another plugin
+    setState({ ...api.getState() })
     return api.subscribe(() => {
       setState({ ...api.getState() })
     })
@@ -81,8 +83,11 @@ export function DebugPanelOverlay({
   }, [options.position])
 
   const themeStyles = useMemo((): React.CSSProperties => {
-    const isDark = options.theme === 'dark' ||
-      (options.theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+    // matchMedia is missing when rendering on a server and in some test / legacy environments
+    const prefersDark = typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
+    const isDark = options.theme === 'dark' || (options.theme === 'auto' && prefersDark)
 
     return isDark
       ? {
@@ -430,13 +435,13 @@ function EventsPanel({ eventLog, onClear }: EventsPanelProps): React.ReactElemen
 
   const typeColors: Record<string, string> = {
     scroll: '#6bcb77',
-    scrollStart: '#4d96ff',
-    scrollEnd: '#4d96ff',
-    visibleRangeChange: '#ffd93d',
-    itemMeasured: '#9b59b6',
+    'scroll-start': '#4d96ff',
+    'scroll-end': '#4d96ff',
+    'visible-range-change': '#ffd93d',
+    'item-measured': '#9b59b6',
     resize: '#ff6b6b',
-    loadMore: '#1abc9c',
-    itemsChange: '#e74c3c',
+    'load-more': '#1abc9c',
+    'items-change': '#e74c3c',
   }
 
   return (

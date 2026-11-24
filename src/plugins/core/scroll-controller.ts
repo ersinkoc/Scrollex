@@ -76,6 +76,28 @@ export function scrollControllerPlugin(
   let kernel: Kernel | null = null
   let animationId: number | null = null
   let animating = false
+  // Bumped by stopAnimation: a frame that is already running when the animation is stopped must not continue it
+  // (its own write can reach a host that reports the scroll synchronously and stops the animation)
+  let animationGeneration = 0
+
+  function isHorizontal(k: Kernel): boolean {
+    return k.getOptions().direction === 'horizontal'
+  }
+
+  function getOffset(k: Kernel): number {
+    const position = k.getScrollPosition()
+    return isHorizontal(k) ? position.scrollLeft : position.scrollTop
+  }
+
+  // Write only the kernel's scroll axis; the other axis is left untouched
+  function setOffset(k: Kernel, offset: number): void {
+    k.setScrollPosition(isHorizontal(k) ? { scrollLeft: offset } : { scrollTop: offset })
+  }
+
+  function getViewportSize(k: Kernel): number {
+    const viewport = k.getViewport()
+    return isHorizontal(k) ? viewport.width : viewport.height
+  }
 
   /**
    * Animate scroll to a target offset.
@@ -89,14 +111,15 @@ export function scrollControllerPlugin(
 
     // Stop any existing animation
     stopAnimation()
+    const generation = animationGeneration
 
     const startTime = performance.now()
-    const startOffset = kernel.getScrollPosition().scrollTop
+    const startOffset = getOffset(kernel)
     const distance = targetOffset - startOffset
 
-    // If distance is 0 or duration is 0, just set directly
-    if (distance === 0 || duration === 0) {
-      kernel.setScrollPosition({ scrollTop: targetOffset, scrollLeft: 0 })
+    // If distance is 0 or the duration is zero, negative or NaN (it can't be animated), just set directly
+    if (distance === 0 || !(duration > 0)) {
+      setOffset(kernel, targetOffset)
       return
     }
 
@@ -107,13 +130,20 @@ export function scrollControllerPlugin(
         animating = false
         return
       }
+      // Stopped or replaced before this frame: the state belongs to the newer owner (or to no animation)
+      if (generation !== animationGeneration) return
 
       const elapsed = currentTime - startTime
-      const progress = Math.min(elapsed / duration, 1)
+      // (a frame's timestamp is its start and can precede the performance.now() of the call that began the animation)
+      const progress = Math.max(0, Math.min(elapsed / duration, 1))
       const easedProgress = easing(progress)
       const currentOffset = startOffset + distance * easedProgress
 
-      kernel.setScrollPosition({ scrollTop: currentOffset, scrollLeft: 0 })
+      setOffset(kernel, currentOffset)
+
+      // Stopped (or superseded) by an observer of that write: do not schedule the next frame, and leave the
+      // animation state to whoever stopped or replaced this animation
+      if (generation !== animationGeneration) return
 
       if (progress < 1) {
         animationId = raf(animate)
@@ -130,6 +160,7 @@ export function scrollControllerPlugin(
    * Stop the current animation.
    */
   function stopAnimation(): void {
+    animationGeneration++
     if (animationId !== null) {
       cancelRaf(animationId)
       animationId = null
@@ -149,7 +180,7 @@ export function scrollControllerPlugin(
 
       if (behavior === 'auto') {
         stopAnimation()
-        kernel.setScrollPosition({ scrollTop: offset, scrollLeft: 0 })
+        setOffset(kernel, offset)
       } else {
         animateScroll(offset, duration, easing)
       }
@@ -166,7 +197,7 @@ export function scrollControllerPlugin(
 
       const itemOffset = kernel.getItemOffset(index)
       const itemSize = kernel.getCachedHeight(index) ?? kernel.getEstimatedHeight()
-      const viewport = kernel.getViewport()
+      const viewportSize = getViewportSize(kernel)
 
       let targetOffset: number
 
@@ -175,16 +206,15 @@ export function scrollControllerPlugin(
           targetOffset = itemOffset
           break
         case 'center':
-          targetOffset = itemOffset - viewport.height / 2 + itemSize / 2
+          targetOffset = itemOffset - viewportSize / 2 + itemSize / 2
           break
         case 'end':
-          targetOffset = itemOffset - viewport.height + itemSize
+          targetOffset = itemOffset - viewportSize + itemSize
           break
         case 'auto':
         default: {
-          const scrollPosition = kernel.getScrollPosition()
-          const visibleStart = scrollPosition.scrollTop
-          const visibleEnd = visibleStart + viewport.height
+          const visibleStart = getOffset(kernel)
+          const visibleEnd = visibleStart + viewportSize
           const itemEnd = itemOffset + itemSize
 
           if (itemOffset < visibleStart) {
@@ -192,7 +222,7 @@ export function scrollControllerPlugin(
             targetOffset = itemOffset
           } else if (itemEnd > visibleEnd) {
             // Item is below viewport - scroll to show end
-            targetOffset = itemEnd - viewport.height
+            targetOffset = itemEnd - viewportSize
           } else {
             // Item is already visible
             return
@@ -202,7 +232,7 @@ export function scrollControllerPlugin(
       }
 
       // Clamp to valid range
-      const maxScroll = Math.max(0, kernel.getTotalSize() - viewport.height)
+      const maxScroll = Math.max(0, kernel.getTotalSize() - viewportSize)
       targetOffset = Math.max(0, Math.min(targetOffset + additionalOffset, maxScroll))
 
       api.scrollTo(targetOffset, scrollOptions)
@@ -215,9 +245,8 @@ export function scrollControllerPlugin(
     scrollToBottom(options: ScrollOptions = {}): void {
       if (!kernel) return
 
-      const viewport = kernel.getViewport()
       const totalSize = kernel.getTotalSize()
-      const maxScroll = Math.max(0, totalSize - viewport.height)
+      const maxScroll = Math.max(0, totalSize - getViewportSize(kernel))
 
       api.scrollTo(maxScroll, options)
     },

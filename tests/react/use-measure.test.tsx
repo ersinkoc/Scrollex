@@ -1,5 +1,6 @@
 import { vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import React, { StrictMode, useMemo, useState } from 'react'
+import { renderHook, render, act } from '@testing-library/react'
 import { useMeasure, useMeasureMany } from '../../src/react/hooks/use-measure.js'
 
 // Mock ResizeObserver
@@ -47,7 +48,7 @@ describe('useMeasure', () => {
     mockResizeObserverInstance = null
 
     // Mock ResizeObserver
-    global.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn((callback) => {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver
@@ -347,7 +348,7 @@ describe('useMeasureMany', () => {
     vi.useFakeTimers()
     mockResizeObserverInstance = null
 
-    global.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn((callback) => {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver
@@ -599,5 +600,254 @@ describe('useMeasureMany', () => {
 
     // Observer should be disconnected
     expect(mockResizeObserverInstance?.observedElements.size).toBe(0)
+  })
+})
+
+describe('useMeasure rendering', () => {
+  beforeEach(() => {
+    mockResizeObserverInstance = null
+    // Deliver the initial notification on observe(), as browsers do
+    globalThis.ResizeObserver = vi.fn((callback: ResizeObserverCallback) => {
+      const observer = new MockResizeObserver(callback)
+      observer.observe = (element: Element) => {
+        observer.observedElements.add(element)
+        observer.triggerResize([{ target: element, contentRect: { width: 120, height: 40 } }])
+      }
+      mockResizeObserverInstance = observer
+      return observer
+    }) as unknown as typeof ResizeObserver
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('should render the measured size', () => {
+    function Probe() {
+      const { measureRef, width, height } = useMeasure()
+      return <div ref={measureRef} data-testid="size">{width} x {height}</div>
+    }
+
+    let result!: ReturnType<typeof render>
+    act(() => {
+      result = render(<Probe />)
+    })
+
+    expect(result.getByTestId('size').textContent).toBe('120 x 40')
+  })
+
+  it('should settle with an inline onResize that sets state', () => {
+    let calls = 0
+    function Probe() {
+      const [, setSize] = useState({ width: 0, height: 0 })
+      const { measureRef } = useMeasure({
+        onResize: (width, height) => {
+          calls++
+          if (calls < 100) setSize({ width, height })
+        },
+      })
+      return <div ref={measureRef} />
+    }
+
+    act(() => {
+      render(<Probe />)
+    })
+
+    // the first reading and the observer's own report, then it is quiet
+    expect(calls).toBe(2)
+    expect(globalThis.ResizeObserver).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useMeasureMany first commit', () => {
+  type Size = [string | number, number, number]
+  let observers: MockResizeObserver[] = []
+  let savedObserver: typeof ResizeObserver
+
+  beforeEach(() => {
+    observers = []
+    savedObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = vi.fn((callback) => {
+      const observer = new MockResizeObserver(callback)
+      observers.push(observer)
+      return observer
+    }) as unknown as typeof ResizeObserver
+  })
+
+  afterEach(() => {
+    globalThis.ResizeObserver = savedObserver
+  })
+
+  function Rows({ keys, onSize }: { keys: string[]; onSize: (key: string | number, width: number, height: number) => void }) {
+    const { createMeasureRef, onMeasure } = useMeasureMany()
+    onMeasure(onSize)
+    return <div>{keys.map((key) => <div key={key} data-k={key} ref={createMeasureRef(key)} />)}</div>
+  }
+
+  function MemoRows({ onSize }: { onSize: (key: string | number, width: number, height: number) => void }) {
+    const { createMeasureRef, onMeasure } = useMeasureMany()
+    onMeasure(onSize)
+    const refs = useMemo(() => ({ a: createMeasureRef('a'), b: createMeasureRef('b') }), [createMeasureRef])
+    return <div><div data-k="a" ref={refs.a} /><div data-k="b" ref={refs.b} /></div>
+  }
+
+  const keysOf = (observer: MockResizeObserver) => [...observer.observedElements].map((el) => (el as HTMLElement).dataset['k'])
+
+  it('should observe the elements that are mounted together with the hook', async () => {
+    const sizes: Size[] = []
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<Rows keys={['a', 'b']} onSize={(k, w, h) => { sizes.push([k, w, h]) }} />) })
+
+    const observer = observers[observers.length - 1]!
+    expect(keysOf(observer)).toEqual(['a', 'b'])
+    await act(async () => {
+      observer.triggerResize([{ target: view.container.querySelector('[data-k="a"]')!, contentRect: { width: 100, height: 40 } }])
+    })
+    expect(sizes).toEqual([['a', 100, 40]])
+  })
+
+  it('should keep observing the first-commit elements under StrictMode', async () => {
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<StrictMode><Rows keys={['a', 'b']} onSize={() => {}} /></StrictMode>) })
+
+    expect(keysOf(observers[observers.length - 1]!)).toEqual(['a', 'b'])
+    view.unmount()
+    expect(observers[observers.length - 1]!.observedElements.size).toBe(0)
+  })
+
+  it('should observe memoised ref callbacks that no re-render re-attaches', async () => {
+    let view!: ReturnType<typeof render>
+    await act(async () => { view = render(<MemoRows onSize={() => {}} />) })
+    await act(async () => { view.rerender(<MemoRows onSize={() => {}} />) })
+
+    expect(keysOf(observers[observers.length - 1]!)).toEqual(['a', 'b'])
+  })
+})
+
+describe('useMeasure first commit without an observer report', () => {
+  let savedObserver: typeof ResizeObserver
+  let savedRect: typeof Element.prototype.getBoundingClientRect
+
+  beforeEach(() => {
+    savedObserver = globalThis.ResizeObserver
+    savedRect = Element.prototype.getBoundingClientRect
+    // an observer that never reports
+    globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
+    Element.prototype.getBoundingClientRect = () => ({ width: 100, height: 50, top: 0, left: 0, right: 100, bottom: 50, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
+  })
+
+  afterEach(() => {
+    globalThis.ResizeObserver = savedObserver
+    Element.prototype.getBoundingClientRect = savedRect
+  })
+
+  function Box({ lateMount = false }: { lateMount?: boolean }) {
+    const { measureRef, width, height } = useMeasure()
+    const [show, setShow] = useState(!lateMount)
+    return (
+      <div>
+        <button onClick={() => setShow(true)}>show</button>
+        {show && <div ref={measureRef} data-testid="box">{width}x{height}</div>}
+      </div>
+    )
+  }
+
+  it('should measure an element that mounts with the component', () => {
+    let view!: ReturnType<typeof render>
+    act(() => { view = render(<Box />) })
+
+    expect(view.getByTestId('box').textContent).toBe('100x50')
+  })
+
+  it('should measure an element that mounts later (control)', () => {
+    let view!: ReturnType<typeof render>
+    act(() => { view = render(<Box lateMount />) })
+    act(() => { view.getByText('show').click() })
+
+    expect(view.getByTestId('box').textContent).toBe('100x50')
+  })
+
+  it('should call onResize with the first reading', () => {
+    const onResize = vi.fn()
+    function Probe() {
+      const { measureRef } = useMeasure({ onResize })
+      return <div ref={measureRef} />
+    }
+
+    act(() => { render(<Probe />) })
+
+    expect(onResize).toHaveBeenCalledWith(100, 50)
+  })
+})
+
+describe('useMeasure border box vs content box', () => {
+  let report: ResizeObserverCallback | null = null
+  const targets = new Set<Element>()
+  let savedObserver: typeof ResizeObserver
+  let savedRect: typeof Element.prototype.getBoundingClientRect
+
+  beforeEach(() => {
+    targets.clear()
+    savedObserver = globalThis.ResizeObserver
+    savedRect = Element.prototype.getBoundingClientRect
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) { report = callback }
+      observe(target: Element) { targets.add(target) }
+      unobserve(target: Element) { targets.delete(target) }
+      disconnect() { targets.clear() }
+    } as unknown as typeof ResizeObserver
+    Element.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const height = Number(this.getAttribute('data-border') ?? 0)
+      return { width: 100, height, top: 0, left: 0, right: 100, bottom: height, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+    }
+  })
+
+  afterEach(() => {
+    globalThis.ResizeObserver = savedObserver
+    Element.prototype.getBoundingClientRect = savedRect
+  })
+
+  const entryFor = (target: Element, content: number, border: number | null) => ({
+    target,
+    contentRect: { width: 100, height: content },
+    ...(border === null ? {} : { borderBoxSize: [{ inlineSize: 100, blockSize: border }] }),
+  }) as unknown as ResizeObserverEntry
+
+  function Box({ border }: { border: number }) {
+    const { measureRef, height } = useMeasure()
+    return <div ref={measureRef} data-border={border} data-testid="box">{height}</div>
+  }
+
+  it('should keep the border box size when the observer reports an unchanged padded element', () => {
+    let view!: ReturnType<typeof render>
+    act(() => { view = render(<Box border={72} />) })
+    expect(view.getByTestId('box').textContent).toBe('72')
+
+    act(() => { for (const target of targets) report!([entryFor(target, 40, 72)], {} as ResizeObserver) })
+
+    expect(view.getByTestId('box').textContent).toBe('72')
+  })
+
+  it('should use contentRect when an entry has no border box size', () => {
+    let view!: ReturnType<typeof render>
+    act(() => { view = render(<Box border={72} />) })
+
+    act(() => { for (const target of targets) report!([entryFor(target, 40, null)], {} as ResizeObserver) })
+
+    expect(view.getByTestId('box').textContent).toBe('40')
+  })
+
+  it('should report the border box in useMeasureMany too', () => {
+    const seen: Array<[string | number, number, number]> = []
+    function Many() {
+      const { createMeasureRef, onMeasure } = useMeasureMany()
+      onMeasure((key, width, height) => { seen.push([key, width, height]) })
+      return <div ref={createMeasureRef('a')} data-border={72} />
+    }
+
+    act(() => { render(<Many />) })
+    act(() => { for (const target of targets) report!([entryFor(target, 40, 72)], {} as ResizeObserver) })
+
+    expect(seen).toEqual([['a', 100, 72]])
   })
 })

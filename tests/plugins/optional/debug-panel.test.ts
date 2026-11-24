@@ -1,6 +1,21 @@
 import { vi } from 'vitest'
 import { debugPanel } from '../../../src/plugins/optional/debug-panel/debug-panel.js'
-import type { Kernel } from '../../../src/types.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
+import { listRendererPlugin } from '../../../src/plugins/core/list-renderer.js'
+import type { DebugPanelAPI } from '../../../src/plugins/optional/debug-panel/types.js'
+import type { Kernel, KernelEvent } from '../../../src/types.js'
+
+/**
+ * The first handler the plugin subscribed with `kernel.on`.
+ *
+ * Indexing `mock.calls` is possibly undefined under `noUncheckedIndexedAccess`, and a plugin that subscribed nothing
+ * is a broken fixture: fail with a readable message instead of calling `undefined`.
+ */
+function firstKernelHandler(kernel: Kernel): (event: unknown) => void {
+  const call = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0]
+  if (!call?.[0]) throw new Error('expected the plugin to subscribe to a kernel event')
+  return call[1] as (event: unknown) => void
+}
 
 // Mock kernel
 function createMockKernel(options: {
@@ -361,8 +376,9 @@ describe('debugPanel', () => {
       const stats = plugin.api?.getStats()
 
       expect(stats?.totalItems).toBe(100)
-      expect(stats?.visibleItems).toBe(10)
-      expect(stats?.renderedItems).toBe(12)
+      // inclusive ranges: 0..10 is 11 items, 0..12 is 13 items
+      expect(stats?.visibleItems).toBe(11)
+      expect(stats?.renderedItems).toBe(13)
       expect(stats?.overscanItems).toBe(2)
       expect(stats?.avgItemHeight).toBe(50) // 5000 / 100
       expect(stats?.scrollPosition.scrollTop).toBe(0)
@@ -370,7 +386,7 @@ describe('debugPanel', () => {
     })
 
     it('should calculate scroll percentage', async () => {
-      kernel = createMockKernel({ scrollTop: 2500, totalSize: 5000 })
+      kernel = createMockKernel({ scrollTop: 2000, totalSize: 5000, viewportHeight: 1000 }) // 2000 of 4000 scrollable px
       const plugin = debugPanel({ enabled: true, statsUpdateInterval: 50 })
       plugin.install?.(kernel)
 
@@ -437,7 +453,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -460,7 +476,7 @@ describe('debugPanel', () => {
       plugin.api?.setActiveTab('events')
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -477,7 +493,7 @@ describe('debugPanel', () => {
       expect(plugin.api?.getActiveTab()).toBe('stats')
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -491,7 +507,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting multiple events
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
 
       for (let i = 0; i < 10; i++) {
         onHandler({ type: 'scroll', scrollTop: i * 100 })
@@ -509,7 +525,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting multiple events
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
       onHandler({ type: 'scroll', scrollTop: 200 })
 
@@ -523,7 +539,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -565,9 +581,9 @@ describe('debugPanel', () => {
     it('should include memory usage when available', async () => {
       // Mock performance.memory (Chrome-only API)
       const mockMemory = { usedJSHeapSize: 50 * 1024 * 1024 } // 50 MB
-      const originalPerformance = global.performance
+      const originalPerformance = globalThis.performance
 
-      Object.defineProperty(global.performance, 'memory', {
+      Object.defineProperty(globalThis.performance, 'memory', {
         value: mockMemory,
         configurable: true,
       })
@@ -582,14 +598,14 @@ describe('debugPanel', () => {
       expect(stats?.memoryUsage).toBe(50)
 
       // Clean up
-      delete (global.performance as any).memory
+      delete (globalThis.performance as any).memory
     })
 
     it('should handle memory being undefined', async () => {
       // Ensure performance.memory is defined but returns undefined
-      const originalPerformance = global.performance
+      const originalPerformance = globalThis.performance
 
-      Object.defineProperty(global.performance, 'memory', {
+      Object.defineProperty(globalThis.performance, 'memory', {
         value: undefined,
         configurable: true,
       })
@@ -604,7 +620,134 @@ describe('debugPanel', () => {
       expect(stats?.memoryUsage).toBeNull()
 
       // Clean up
-      delete (global.performance as any).memory
+      delete (globalThis.performance as any).memory
     })
+  })
+})
+
+describe('debugPanel with a real kernel', () => {
+  const kernelEvent = (type: string) => ({ type }) as unknown as KernelEvent
+  const kinds = ['scroll', 'scroll-start', 'scroll-end', 'visible-range-change', 'item-measured', 'resize', 'load-more', 'items-change']
+
+  it('should record every kernel event kind', () => {
+    const kernel = createKernel({ itemCount: 10 })
+    const plugin = debugPanel({ enabled: false })
+    kernel.register(plugin)
+    const api = plugin.api as DebugPanelAPI
+    api.setActiveTab('events')
+
+    kinds.forEach((kind) => kernel.emit(kernelEvent(kind)))
+
+    expect(api.getEventLog().map((entry) => entry.type)).toEqual([...kinds].reverse())
+  })
+
+  it('should stop logging and notifying once uninstalled', () => {
+    const kernel = createKernel({ itemCount: 10 })
+    const plugin = debugPanel({ enabled: false })
+    const api = plugin.api as DebugPanelAPI & { subscribe(listener: () => void): () => void }
+    kernel.register(plugin)
+    api.setActiveTab('events')
+    kernel.emit(kernelEvent('scroll'))
+    kernel.unregister('debug-panel')
+
+    const listener = vi.fn()
+    api.subscribe(listener)
+    kernel.emit(kernelEvent('scroll'))
+
+    expect(api.getEventLog()).toHaveLength(1)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('should not keep logging from a replaced instance', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const kernel = createKernel({ itemCount: 10 })
+    kernel.register(debugPanel({ enabled: false, logEvents: true }))
+    kernel.unregister('debug-panel')
+    kernel.register(debugPanel({ enabled: false, logEvents: true }))
+
+    kernel.emit(kernelEvent('scroll'))
+
+    expect(log).toHaveBeenCalledTimes(1)
+    log.mockRestore()
+  })
+})
+
+describe('debugPanel item counts', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  function setup(itemCount: number, scrollTop: number) {
+    const el = document.createElement('div')
+    Object.defineProperty(el, 'clientHeight', { get: () => 500, configurable: true })
+    Object.defineProperty(el, 'clientWidth', { get: () => 400, configurable: true })
+    Object.defineProperty(el, 'scrollTop', { get: () => scrollTop, set: (v: number) => { scrollTop = v }, configurable: true })
+    const kernel = createKernel({ itemCount, estimatedItemHeight: 50, overscan: 2 })
+    const renderer = listRendererPlugin()
+    kernel.register(renderer)
+    const plugin = debugPanel({ enabled: true, statsUpdateInterval: 10 })
+    kernel.register(plugin)
+    kernel.attach(el)
+    el.dispatchEvent(new Event('scroll'))
+    return { kernel, plugin, renderer }
+  }
+
+  it('should count the rows of the inclusive ranges', async () => {
+    const { kernel, plugin, renderer } = setup(100, 4500)
+    await vi.advanceTimersByTimeAsync(200)
+
+    const range = kernel.getVisibleRange()
+    const rows = (renderer.api as { getVirtualItems(): unknown[] }).getVirtualItems().length
+    const stats = plugin.api!.getStats()
+    expect(range.endIndex - range.startIndex + 1).toBe(10)
+    expect(stats.visibleItems).toBe(10)
+    expect(stats.renderedItems).toBe(rows)
+    expect(stats.overscanItems).toBe(rows - 10)
+    kernel.destroy()
+  })
+
+  it('should report no items for an empty list', async () => {
+    const { kernel, plugin } = setup(0, 0)
+    await vi.advanceTimersByTimeAsync(200)
+
+    const stats = plugin.api!.getStats()
+    expect([stats.visibleItems, stats.renderedItems, stats.overscanItems]).toEqual([0, 0, 0])
+    kernel.destroy()
+  })
+})
+
+describe('debugPanel scroll position stats', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  async function statsAt(scroll: number, options: { horizontal?: boolean; itemCount?: number } = {}) {
+    const { horizontal = false, itemCount = 100 } = options
+    const el = document.createElement('div')
+    let offset = scroll
+    Object.defineProperty(el, 'clientHeight', { get: () => 500, configurable: true })
+    Object.defineProperty(el, 'clientWidth', { get: () => (horizontal ? 500 : 400), configurable: true })
+    Object.defineProperty(el, horizontal ? 'scrollLeft' : 'scrollTop', { get: () => offset, set: (v: number) => { offset = v }, configurable: true })
+    const kernel = createKernel({ itemCount, estimatedItemHeight: 50, direction: horizontal ? 'horizontal' : 'vertical' })
+    const plugin = debugPanel({ enabled: true, statsUpdateInterval: 10 })
+    kernel.register(plugin)
+    kernel.attach(el)
+    el.dispatchEvent(new Event('scroll'))
+    await vi.advanceTimersByTimeAsync(200)
+    const { percentage, offset: reported } = plugin.api!.getStats().scrollPosition
+    kernel.destroy()
+    return { percentage, offset: reported }
+  }
+
+  it('should report 0, 0.5 and 1 at the start, middle and end of the scrollable distance', async () => {
+    expect((await statsAt(0)).percentage).toBe(0)
+    expect((await statsAt(2250)).percentage).toBe(0.5)
+    expect((await statsAt(4500)).percentage).toBe(1)
+  })
+
+  it('should report 0 when the content fits the viewport', async () => {
+    expect((await statsAt(0, { itemCount: 5 })).percentage).toBe(0)
+  })
+
+  it('should read scrollLeft and the width of a horizontal list', async () => {
+    expect(await statsAt(4500, { horizontal: true })).toEqual({ percentage: 1, offset: 4500 })
   })
 })

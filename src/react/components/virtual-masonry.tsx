@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useRef,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useCallback,
@@ -12,8 +13,9 @@ import type {
   MasonryRenderItemProps,
 } from '../../types.js'
 import { useVirtualMasonry } from '../hooks/use-virtual-masonry.js'
+import { useKernelPlugins } from '../hooks/use-kernel-plugins.js'
+import { useLoadMoreWhenShort } from '../hooks/use-load-more-when-short.js'
 import { ScrollexContext } from '../context.js'
-import { createKernel } from '../../kernel/kernel.js'
 
 /**
  * A virtualized masonry component that efficiently renders large datasets in a Pinterest-style layout.
@@ -85,30 +87,44 @@ function VirtualMasonryInner<T>(
     scrollTo,
     scrollToIndex,
     isScrolling,
+    scrollOffset,
     range,
     columnCount,
     columnWidth,
     columnHeights,
+    invalidateAllMeasurements,
+    kernel,
   } = useVirtualMasonry({
     count: data.length,
-    columns: typeof columns === 'number' ? columns : 3, // TODO: handle auto
+    columns,
+    minColumnWidth,
     getItemHeight: (index, colWidth) => {
-      const item = data[index]
-      if (item === undefined) return 100
-      return getItemHeight(item, colWidth)
+      if (index >= data.length) return 100
+      return getItemHeight(data[index] as T, colWidth)
     },
-    gap: gapValue,
+    gap,
     overscan,
+    initialOffset: initialScrollOffset,
+    getItemKey: getItemKey ? (index) => getItemKey(index, data) : undefined,
     containerRef,
   })
 
-  // Create kernel for context
-  const kernelRef = useRef(createKernel({
-    itemCount: data.length,
-    estimatedItemHeight: 200,
-    overscan,
-    direction: 'vertical',
-  }))
+  // Heights derive from data; re-layout when it changes (getItemHeight is read via ref in the hook)
+  useEffect(() => {
+    invalidateAllMeasurements()
+  }, [data, invalidateAllMeasurements])
+
+  // Report range changes
+  useEffect(() => {
+    if (virtualItems.length === 0) return
+    onVisibleRangeChange?.(range)
+    onItemsRendered?.({
+      overscanStartIndex: range.overscanStartIndex,
+      overscanEndIndex: range.overscanEndIndex,
+      visibleStartIndex: range.startIndex,
+      visibleEndIndex: range.endIndex,
+    })
+  }, [range.startIndex, range.endIndex, range.overscanStartIndex, range.overscanEndIndex])
 
   // Imperative handle
   useImperativeHandle(ref, () => ({
@@ -162,13 +178,15 @@ function VirtualMasonryInner<T>(
   // Create render item props
   const createRenderProps = useCallback(
     (index: number, virtualItem: typeof virtualItems[0]): MasonryRenderItemProps<T> => {
-      const item = data[index]
-      if (item === undefined) {
-        throw new Error(`[Scrollex] Item at index ${index} is undefined`)
+      if (index >= data.length) {
+        throw new Error(`[Scrollex] Item at index ${index} is out of range`)
       }
+      const item = data[index] as T
 
       const columnIndex = virtualItem.lane
       const left = columnIndex * (columnWidth + gapValue)
+      // Indexes don't follow the layout in a masonry, so visibility comes from the item's own geometry
+      const viewportHeight = kernel.getViewport().height
 
       const itemStyles: CSSProperties = {
         position: 'absolute',
@@ -187,7 +205,7 @@ function VirtualMasonryInner<T>(
         index,
         style: itemStyles,
         measureRef: () => {}, // Masonry uses calculated heights
-        isVisible: true, // All virtual items are considered visible
+        isVisible: virtualItem.end > scrollOffset && virtualItem.start < scrollOffset + viewportHeight,
         isScrolling,
         columnIndex,
         rowIndex: 0, // Not meaningful for masonry
@@ -195,13 +213,19 @@ function VirtualMasonryInner<T>(
         width: columnWidth,
       }
     },
-    [data, columnWidth, gapValue, itemStyle, isScrolling]
+    [data, columnWidth, gapValue, itemStyle, isScrolling, scrollOffset, kernel]
   )
+
+  // Install plugins from props on the live kernel
+  useKernelPlugins(kernel, plugins)
+
+  // A list that does not overflow can't fire a scroll event, so ask for more data after layout
+  useLoadMoreWhenShort(containerRef, { count: data.length, totalSize, hasMore, isLoading, threshold, onLoadMore })
 
   // Context value
   const contextValue = useMemo(() => ({
-    kernel: kernelRef.current,
-  }), [])
+    kernel,
+  }), [kernel])
 
   return (
     <ScrollexContext.Provider value={contextValue}>
@@ -222,8 +246,7 @@ function VirtualMasonryInner<T>(
         <div className={innerClassName} style={innerContainerStyles}>
           {virtualItems.map((virtualItem) => {
             const index = virtualItem.index
-            const item = data[index]
-            if (item === undefined) return null
+            if (index >= data.length) return null
 
             return (
               <div

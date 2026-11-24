@@ -49,14 +49,13 @@ const plugin = infiniteLoaderPlugin({
     name: 'Sticky Headers',
     icon: Layers,
     gradient: 'from-blue-500 to-cyan-500',
-    description: 'Keep group headers visible while scrolling through grouped content.',
-    code: `import { stickyHeadersPlugin } from '@oxog/scrollex/plugins'
+    description: 'Track which group header is current while scrolling grouped content, so you can pin it in your own markup.',
+    code: `import { stickyHeaders } from '@oxog/scrollex/plugins'
 
-const plugin = stickyHeadersPlugin({
-  getGroupKey: (item) => item.category,
-  renderHeader: (groupKey) => (
-    <div className="sticky-header">{groupKey}</div>
-  )
+const plugin = stickyHeaders({
+  headerHeight: 40,
+  isHeader: (index) => items[index].type === 'header',
+  getGroupId: (index) => items[index].category
 })`,
   },
   {
@@ -64,11 +63,11 @@ const plugin = stickyHeadersPlugin({
     icon: Ruler,
     gradient: 'from-emerald-500 to-teal-500',
     description: 'Support variable item heights with automatic measurement.',
-    code: `import { dynamicHeightsPlugin } from '@oxog/scrollex/plugins'
+    code: `import { autoMeasurerPlugin } from '@oxog/scrollex/plugins'
 
-const plugin = dynamicHeightsPlugin({
-  estimatedHeight: 100,
-  measureOnRender: true
+const plugin = autoMeasurerPlugin({
+  estimatedItemHeight: 100,
+  measureOnResize: true
 })`,
   },
 ]
@@ -79,9 +78,9 @@ const optionalPlugins = [
     icon: RotateCcw,
     gradient: 'from-amber-500 to-orange-500',
     description: 'Remember and restore scroll position across navigation.',
-    code: `import { scrollRestorationPlugin } from '@oxog/scrollex/plugins'
+    code: `import { scrollRestoration } from '@oxog/scrollex/plugins'
 
-const plugin = scrollRestorationPlugin({
+const plugin = scrollRestoration({
   key: 'my-list',
   storage: sessionStorage
 })`,
@@ -90,26 +89,28 @@ const plugin = scrollRestorationPlugin({
     name: 'Bidirectional',
     icon: ArrowLeftRight,
     gradient: 'from-pink-500 to-rose-500',
-    description: 'Enable horizontal scrolling with full virtualization support.',
-    code: `import { bidirectionalPlugin } from '@oxog/scrollex/plugins'
+    description: 'Chat-style lists: start at the bottom, stick to it for new items, load older or newer items at the edges.',
+    code: `import { bidirectional } from '@oxog/scrollex/plugins'
 
-const plugin = bidirectionalPlugin({
-  direction: 'horizontal',
-  itemWidth: 200
-})`,
+const plugin = bidirectional({
+  stickToBottom: true,
+  onLoadMore: (direction) => loadMessages(direction)
+})
+
+// after prepending older messages: plugin.api.adjustForPrepend(addedHeight)`,
   },
   {
     name: 'Debug Panel',
     icon: Bug,
     gradient: 'from-indigo-500 to-violet-500',
     description: 'Development tool for monitoring virtualization performance.',
-    code: `import { debugPanelPlugin } from '@oxog/scrollex/plugins'
+    code: `import { debugPanel, DebugPanelOverlay } from '@oxog/scrollex/plugins'
 
-const plugin = debugPanelPlugin({
+const plugin = debugPanel({
   position: 'bottom-right',
-  showFPS: true,
-  showMemory: true
-})`,
+  showFps: true
+})
+// render <DebugPanelOverlay plugin={plugin} /> next to your list`,
   },
 ]
 
@@ -117,11 +118,11 @@ const hooks = [
   { hook: 'onScroll', args: 'ScrollEvent', desc: 'Called on every scroll frame (RAF throttled)' },
   { hook: 'onScrollStart', args: '-', desc: 'Called when scrolling begins' },
   { hook: 'onScrollEnd', args: '-', desc: 'Called when scrolling stops (debounced)' },
-  { hook: 'onVisibleRangeChange', args: 'VisibleRange', desc: 'Called when visible items change' },
+  { hook: 'onVisibleRangeChange', args: 'range, previousRange', desc: 'Called when visible items change' },
   { hook: 'onItemMeasured', args: 'index, size', desc: 'Called when an item is measured' },
-  { hook: 'onResize', args: 'Size', desc: 'Called when container is resized' },
+  { hook: 'onResize', args: 'Viewport', desc: 'Called when container is resized' },
   { hook: 'onLoadMore', args: 'direction', desc: 'Called when more items should load' },
-  { hook: 'onItemsChange', args: 'items[]', desc: 'Called when items array changes' },
+  { hook: 'onItemsChange', args: 'count, previousCount', desc: 'Called when items array changes' },
 ]
 
 export default function Plugins() {
@@ -170,18 +171,21 @@ export default function Plugins() {
               events and modify behavior.
             </p>
             <CodeBlock
-              code={`import { useVirtualList } from '@oxog/scrollex'
-import { infiniteLoaderPlugin, stickyHeadersPlugin } from '@oxog/scrollex/plugins'
+              code={`import { VirtualList } from '@oxog/scrollex'
+import { infiniteLoaderPlugin, stickyHeaders } from '@oxog/scrollex/plugins'
 
 function MyList() {
-  const { containerRef, virtualItems, totalHeight } = useVirtualList({
-    items,
-    itemHeight: 50,
-    plugins: [
-      infiniteLoaderPlugin({ onLoadMore: handleLoadMore }),
-      stickyHeadersPlugin({ getGroupKey: item => item.category })
-    ]
-  })
+  return (
+    <VirtualList
+      data={items}
+      itemHeight={50}
+      plugins={[
+        infiniteLoaderPlugin({ onLoadMore: handleLoadMore }),
+        stickyHeaders({ headerHeight: 40, isHeader, getGroupId })
+      ]}
+      renderItem={({ item, style }) => <div style={style}>{item.name}</div>}
+    />
+  )
 }`}
             />
           </section>
@@ -243,26 +247,27 @@ function MyList() {
 const analyticsPlugin = createPlugin({
   name: 'analytics',
   version: '1.0.0',
+  type: 'optional',
 
   install(kernel) {
     // Called when plugin is registered
     console.log('Analytics plugin installed')
   },
 
-  destroy() {
+  uninstall() {
     // Called when plugin is unregistered
-    console.log('Analytics plugin destroyed')
+    console.log('Analytics plugin uninstalled')
   },
 
   hooks: {
     onScroll(event) {
-      // Track scroll depth
-      trackScrollDepth(event.scrollTop / event.scrollHeight)
+      // Track scroll position
+      trackScrollDepth(event.scrollTop)
     },
 
     onVisibleRangeChange(range) {
       // Track visible items
-      trackVisibleItems(range.start, range.end)
+      trackVisibleItems(range.startIndex, range.endIndex)
     },
 
     onScrollStart() {

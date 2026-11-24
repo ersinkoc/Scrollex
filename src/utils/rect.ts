@@ -185,3 +185,16 @@ export function getVisibilityRatio(
 
   return visibleSize / itemSize
 }
+
+/**
+ * The width columns share: the content box of a scroll container. The inner element is `width: 100%`, so padding on
+ * the container is not available to them (clientWidth includes it; a ResizeObserver's contentRect does not).
+ *
+ * @param element - Scroll container
+ * @returns Content width in px
+ */
+export function getContentWidth(element: HTMLElement): number {
+  const style = typeof getComputedStyle === 'function' ? getComputedStyle(element) : null
+  const padding = style ? (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0) : 0
+  return Math.max(0, element.clientWidth - padding)
+}

@@ -1,5 +1,7 @@
 import { vi } from 'vitest'
 import { autoMeasurerPlugin } from '../../../src/plugins/core/auto-measurer.js'
+import type { AutoMeasurerAPI } from '../../../src/plugins/core/auto-measurer.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
 import type { Kernel } from '../../../src/types.js'
 
 // Mock kernel
@@ -13,6 +15,7 @@ function createMockKernel(): Kernel {
     }),
     getCachedHeight: vi.fn((index: number) => measurements.get(index)),
     getItemCount: vi.fn(() => 10),
+    getOptions: vi.fn(() => ({ direction: 'vertical' })),
     invalidateMeasurement: vi.fn((index: number) => {
       measurements.delete(index)
     }),
@@ -79,7 +82,8 @@ describe('autoMeasurerPlugin', () => {
 
       plugin.install?.(kernel)
 
-      expect(kernel.configure).toHaveBeenCalledWith({ estimatedItemHeight: 50 })
+      // No estimate requested: the kernel keeps its own
+      expect(kernel.configure).not.toHaveBeenCalled()
     })
 
     it('should install with custom estimated height', () => {
@@ -284,5 +288,133 @@ describe('autoMeasurerPlugin', () => {
 
       expect(() => plugin.api?.unobserve(element)).not.toThrow()
     })
+
+    it('should measure an element only for the index it is observed for', async () => {
+      const plugin = autoMeasurerPlugin({ measureOnResize: true })
+      plugin.install?.(kernel)
+
+      const shared = createMockElement(100)
+      plugin.api?.observe(3, shared)
+      plugin.api?.observe(5, shared) // the same node now belongs to index 5
+
+      await vi.advanceTimersByTimeAsync(20)
+
+      expect(kernel.measureItem).toHaveBeenCalledTimes(1)
+      expect(kernel.measureItem).toHaveBeenCalledWith(5, 100)
+    })
+  })
+})
+
+describe('autoMeasurerPlugin in a browser without WeakRef', () => {
+  const globals = globalThis as { WeakRef?: unknown }
+  const realWeakRef = globals.WeakRef
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    delete globals.WeakRef
+  })
+
+  afterEach(() => {
+    globals.WeakRef = realWeakRef
+    vi.useRealTimers()
+  })
+
+  it('should observe and measure elements without it', () => {
+    const kernel = createMockKernel()
+    const plugin = autoMeasurerPlugin()
+    plugin.install?.(kernel)
+    const element = createMockElement(80)
+
+    expect(() => plugin.api?.observe(3, element)).not.toThrow()
+    vi.advanceTimersByTime(50)
+
+    expect(kernel.measureItem).toHaveBeenCalledWith(3, 80)
+  })
+
+  it('should forget the element when it is unobserved', () => {
+    const kernel = createMockKernel()
+    const plugin = autoMeasurerPlugin()
+    plugin.install?.(kernel)
+    const element = createMockElement(80)
+
+    plugin.api?.observe(3, element)
+    plugin.api?.unobserve(element)
+    vi.advanceTimersByTime(50)
+
+    expect(kernel.measureItem).not.toHaveBeenCalled()
+  })
+})
+
+describe('autoMeasurerPlugin with measureOnResize off', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('should still measure an observed element once', () => {
+    const kernel = createMockKernel()
+    const plugin = autoMeasurerPlugin({ measureOnResize: false })
+    plugin.install?.(kernel)
+
+    plugin.api?.observe(3, createMockElement(77))
+    vi.advanceTimersByTime(50)
+
+    expect(kernel.measureItem).toHaveBeenCalledWith(3, 77)
+  })
+
+  it('should forget an element that is unobserved before the first measurement', () => {
+    const kernel = createMockKernel()
+    const plugin = autoMeasurerPlugin({ measureOnResize: false })
+    plugin.install?.(kernel)
+    const element = createMockElement(77)
+
+    plugin.api?.observe(3, element)
+    plugin.api?.unobserve(element)
+    vi.advanceTimersByTime(50)
+
+    expect(kernel.measureItem).not.toHaveBeenCalled()
+  })
+
+  it('should not re-measure on resize notifications because there is no observer', () => {
+    const plugin = autoMeasurerPlugin({ measureOnResize: false })
+    plugin.install?.(createMockKernel())
+
+    expect(() => plugin.uninstall?.()).not.toThrow()
+  })
+})
+
+describe('autoMeasurerPlugin on a horizontal list', () => {
+  const rect = { width: 120, height: 300, top: 0, left: 0, right: 120, bottom: 300, x: 0, y: 0, toJSON() {} } as DOMRect
+  const measuredSizes = (direction: 'vertical' | 'horizontal') => {
+    const kernel = createKernel({ itemCount: 10, estimatedItemHeight: 50, direction })
+    const plugin = autoMeasurerPlugin()
+    kernel.register(plugin)
+    const el = document.createElement('div')
+    el.getBoundingClientRect = () => rect
+    ;(plugin.api as AutoMeasurerAPI).measureElement(0, el)
+    const size = kernel.getCachedHeight(0)
+    kernel.destroy()
+    return size
+  }
+
+  it('should measure the height in a vertical list (control)', () => {
+    expect(measuredSizes('vertical')).toBe(300)
+  })
+
+  it('should measure the width in a horizontal list', () => {
+    expect(measuredSizes('horizontal')).toBe(120)
+  })
+
+  it('should measure the width of observed elements in a horizontal list', () => {
+    const frames: FrameRequestCallback[] = []
+    const raf = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => { frames.push(cb); return frames.length })
+    const kernel = createKernel({ itemCount: 10, estimatedItemHeight: 50, direction: 'horizontal' })
+    const plugin = autoMeasurerPlugin()
+    kernel.register(plugin)
+    const el = document.createElement('div')
+    el.getBoundingClientRect = () => rect
+    ;(plugin.api as AutoMeasurerAPI).observe(1, el)
+    frames.splice(0).forEach((cb) => cb(0))
+    expect(kernel.getCachedHeight(1)).toBe(120)
+    kernel.destroy()
+    raf.mockRestore()
   })
 })

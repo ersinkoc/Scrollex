@@ -80,12 +80,13 @@ export default function ApiReference() {
             <CodeBlock
               code={`interface UseVirtualListOptions {
   count: number                    // Total number of items
-  containerRef: RefObject<HTMLDivElement>  // Ref to scroll container
+  containerRef: RefObject<HTMLElement>     // Ref to scroll container
   estimatedItemHeight?: number     // Estimated item height (default: 50)
   getItemHeight?: (index: number) => number  // Known item heights
   overscan?: number                // Extra items to render (default: 5)
   paddingStart?: number            // Padding at start (default: 0)
   paddingEnd?: number              // Padding at end (default: 0)
+  scrollMargin?: number            // Declared, not used yet
   initialOffset?: number           // Initial scroll offset (default: 0)
   getItemKey?: (index: number) => string | number  // Key generator
   horizontal?: boolean             // Horizontal mode (default: false)
@@ -106,6 +107,7 @@ export default function ApiReference() {
   getMeasurement: (index: number) => number | undefined
   invalidateMeasurement: (index: number) => void
   invalidateAllMeasurements: () => void
+  kernel: Kernel                   // Kernel instance driving this virtualizer
 }`}
             />
           </section>
@@ -142,15 +144,33 @@ function MyList({ data }) {
             <CodeBlock
               code={`interface VirtualListProps<T> {
   data: T[]                        // Array of items
-  height: number | string          // Container height
-  width?: number | string          // Container width
-  itemHeight: number | ((index: number, item: T) => number)
   renderItem: (props: RenderItemProps<T>) => ReactNode
-  overscan?: number
+  itemHeight: number | 'auto'      // Fixed height, or 'auto' to measure
+  estimatedItemHeight?: number     // Estimate for 'auto' (default: 50)
+  height?: number | string         // Container height (default: '100%')
+  width?: number | string          // Container width (default: '100%')
+  direction?: 'vertical' | 'horizontal'
+  overscan?: number                // Default: 5
+  initialScrollOffset?: number
+  getItemKey?: (index: number, data: T[]) => string | number
+  onLoadMore?: () => void | Promise<void>
+  hasMore?: boolean
+  isLoading?: boolean
+  loadingIndicator?: ReactNode
+  threshold?: number               // Pixels from the end that trigger onLoadMore (default: 200)
+  onScroll?: (scrollTop: number, scrollLeft: number) => void
+  onVisibleRangeChange?: (range: Range) => void
+  onItemsRendered?: (info: ItemsRenderedInfo) => void
+  plugins?: Plugin[]
   className?: string
   style?: CSSProperties
-  onItemsRendered?: (info: ItemsRenderedInfo) => void
-  onScroll?: (scrollTop: number) => void
+  innerClassName?: string
+  innerStyle?: CSSProperties
+  itemClassName?: string
+  itemStyle?: CSSProperties
+  role?: string                    // Default: 'listbox'
+  ariaLabel?: string
+  tabIndex?: number
 }`}
             />
           </section>
@@ -207,13 +227,12 @@ kernel.destroy()`}
             <CodeBlock
               code={`interface Plugin {
   name: string
-  version?: string
-  type?: 'renderer' | 'behavior' | 'utility'
-  dependencies?: string[]
-  api?: Record<string, unknown>  // Plugin API exposed to users
-  install?: (kernel: Kernel) => void
-  destroy?: () => void
+  version: string
+  type: 'core' | 'optional'
+  install(kernel: Kernel): void  // Required
+  uninstall(): void              // Required
   hooks?: PluginHooks
+  api?: any                      // Plugin API exposed to users
 }`}
             />
 
@@ -238,22 +257,22 @@ kernel.destroy()`}
 const analyticsPlugin = createPlugin({
   name: 'analytics',
   version: '1.0.0',
-  type: 'utility',
+  type: 'optional',
 
   install(kernel) {
     console.log('Analytics plugin installed')
   },
 
-  destroy() {
-    console.log('Analytics plugin destroyed')
+  uninstall() {
+    console.log('Analytics plugin uninstalled')
   },
 
   hooks: {
     onScroll(event) {
-      trackScrollDepth(event.scrollTop / event.scrollHeight)
+      trackScrollDepth(event.scrollTop)
     },
-    onVisibleRangeChange(event) {
-      trackVisibleItems(event.range.startIndex, event.range.endIndex)
+    onVisibleRangeChange(range) {
+      trackVisibleItems(range.startIndex, range.endIndex)
     }
   }
 })`}
@@ -276,6 +295,7 @@ const analyticsPlugin = createPlugin({
   start: number      // Top position in pixels
   size: number       // Height in pixels
   end: number        // Bottom position (start + size)
+  lane: number       // Column index (always 0 in a list)
 }`}
             />
 
@@ -286,31 +306,35 @@ const analyticsPlugin = createPlugin({
   endIndex: number         // Last visible item index
   overscanStartIndex: number  // First rendered item (with overscan)
   overscanEndIndex: number    // Last rendered item (with overscan)
+  start?: number              // Alias for startIndex (only set on the render range)
+  end?: number                // Alias for endIndex (only set on the render range)
 }`}
             />
 
             <h3 className="text-lg font-semibold mt-6 mb-3">ScrollEvent</h3>
             <CodeBlock
               code={`interface ScrollEvent {
+  type: 'scroll'
   scrollTop: number
   scrollLeft: number
-  scrollHeight: number
-  scrollWidth: number
-  clientHeight: number
-  clientWidth: number
-  direction: 'forward' | 'backward'
-  velocity: number
+  deltaY: number
+  deltaX: number
+  direction: 'up' | 'down' | 'left' | 'right' | 'none'
+  timestamp: number
 }`}
             />
 
             <h3 className="text-lg font-semibold mt-6 mb-3">ScrollOptions</h3>
             <CodeBlock
               code={`interface ScrollOptions {
-  behavior?: 'auto' | 'smooth' | 'instant'
+  behavior?: 'auto' | 'smooth'
+  duration?: number              // ms, for smooth scrolling (a value <= 0 scrolls instantly)
+  easing?: (t: number) => number
 }
 
 interface ScrollToIndexOptions extends ScrollOptions {
   align?: 'start' | 'center' | 'end' | 'auto'
+  offset?: number                // Additional offset in pixels
 }`}
             />
           </section>

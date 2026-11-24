@@ -55,6 +55,7 @@ export interface StickyHeadersAPI {
  *
  * <VirtualList
  *   data={groupedItems}
+ *   itemHeight={40}
  *   plugins={[stickyHeaders({
  *     headerHeight: 40,
  *     isHeader: (index) => groupedItems[index].type === 'header',
@@ -118,15 +119,22 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
   }
 
   /**
+   * The scroll offset along the list's own axis.
+   */
+  function offsetOf(position: { scrollTop: number; scrollLeft: number }): number {
+    return kernel?.getOptions().direction === 'horizontal' ? position.scrollLeft : position.scrollTop
+  }
+
+  /**
    * Update the current sticky header based on scroll position.
    */
-  function updateStickyHeader(event: ScrollEvent): void {
+  function updateStickyHeader(scrollOffset: number): void {
     if (!kernel || headerIndices.length === 0) {
       currentStickyHeader = null
       return
     }
 
-    const scrollTop = event.scrollTop + stickyOffset
+    const scrollTop = scrollOffset + stickyOffset
 
     // Find the last header that's above the scroll position
     let newStickyHeader: number | null = null
@@ -142,6 +150,14 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
     }
 
     currentStickyHeader = newStickyHeader
+  }
+
+  /**
+   * Recompute the sticky header for the current scroll position (after the cache changed).
+   */
+  function refreshStickyHeader(): void {
+    if (!kernel) return
+    updateStickyHeader(offsetOf(kernel.getScrollPosition()))
   }
 
   /**
@@ -198,6 +214,7 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
     install(k: Kernel): void {
       kernel = k
       buildHeaderCache()
+      refreshStickyHeader()
     },
 
     uninstall(): void {
@@ -208,8 +225,11 @@ export function stickyHeaders(options: StickyHeadersOptions): Plugin {
     },
 
     hooks: {
-      onScroll: updateStickyHeader,
-      onItemsChange: () => buildHeaderCache(),
+      onScroll: (event: ScrollEvent) => updateStickyHeader(offsetOf(event)),
+      onItemsChange: () => {
+        buildHeaderCache()
+        refreshStickyHeader()
+      },
     },
 
     api,

@@ -1,6 +1,7 @@
 import React, {
   forwardRef,
   useRef,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useCallback,
@@ -13,8 +14,9 @@ import type {
   Plugin,
 } from '../../types.js'
 import { useVirtualList } from '../hooks/use-virtual-list.js'
+import { useKernelPlugins } from '../hooks/use-kernel-plugins.js'
+import { useLoadMoreWhenShort } from '../hooks/use-load-more-when-short.js'
 import { ScrollexContext } from '../context.js'
-import { createKernel } from '../../kernel/kernel.js'
 
 /**
  * A virtualized list component that efficiently renders large datasets.
@@ -94,6 +96,7 @@ function VirtualListInner<T>(
     measureElement,
     isScrolling,
     range,
+    kernel,
   } = useVirtualList({
     count: data.length,
     getItemHeight: itemHeight === 'auto' ? undefined : () => itemHeight as number,
@@ -105,13 +108,17 @@ function VirtualListInner<T>(
     containerRef,
   })
 
-  // Create kernel for context
-  const kernelRef = useRef(createKernel({
-    itemCount: data.length,
-    estimatedItemHeight: itemHeight === 'auto' ? estimatedItemHeight : (itemHeight as number),
-    overscan,
-    direction,
-  }))
+  // Report range changes
+  useEffect(() => {
+    if (virtualItems.length === 0) return
+    onVisibleRangeChange?.(range)
+    onItemsRendered?.({
+      overscanStartIndex: range.overscanStartIndex,
+      overscanEndIndex: range.overscanEndIndex,
+      visibleStartIndex: range.startIndex,
+      visibleEndIndex: range.endIndex,
+    })
+  }, [range.startIndex, range.endIndex, range.overscanStartIndex, range.overscanEndIndex])
 
   // Imperative handle
   useImperativeHandle(ref, () => ({
@@ -136,12 +143,14 @@ function VirtualListInner<T>(
     if (!onLoadMore || !hasMore || isLoading) return
 
     const target = event.currentTarget
-    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+    const distanceToEnd = direction === 'horizontal'
+      ? target.scrollWidth - target.scrollLeft - target.clientWidth
+      : target.scrollHeight - target.scrollTop - target.clientHeight
 
-    if (scrollBottom < threshold) {
+    if (distanceToEnd < threshold) {
       onLoadMore()
     }
-  }, [onLoadMore, hasMore, isLoading, threshold])
+  }, [onLoadMore, hasMore, isLoading, threshold, direction])
 
   // Container styles
   const containerStyles: CSSProperties = useMemo(() => ({
@@ -165,10 +174,10 @@ function VirtualListInner<T>(
   // Create render item props
   const createRenderProps = useCallback(
     (index: number): RenderItemProps<T> => {
-      const item = data[index]
-      if (item === undefined) {
-        throw new Error(`[Scrollex] Item at index ${index} is undefined`)
+      if (index >= data.length) {
+        throw new Error(`[Scrollex] Item at index ${index} is out of range`)
       }
+      const item = data[index] as T
 
       const virtualItem = virtualItems.find((vi) => vi.index === index)
       const itemOffset = virtualItem?.start ?? 0
@@ -178,8 +187,10 @@ function VirtualListInner<T>(
         position: 'absolute',
         top: 0,
         left: 0,
-        width: direction === 'vertical' ? '100%' : itemSize,
-        height: direction === 'vertical' ? itemSize : '100%',
+        // Rows that are measured take the size of their content: a fixed size on the measured element would only
+        // measure itself (the estimate until it is measured) and never grow
+        width: direction === 'vertical' ? '100%' : itemHeight === 'auto' ? 'auto' : itemSize,
+        height: direction === 'vertical' ? (itemHeight === 'auto' ? 'auto' : itemSize) : '100%',
         transform: direction === 'vertical'
           ? `translateY(${itemOffset}px)`
           : `translateX(${itemOffset}px)`,
@@ -197,13 +208,19 @@ function VirtualListInner<T>(
         isScrolling,
       }
     },
-    [data, virtualItems, estimatedItemHeight, direction, itemStyle, measureElement, range, isScrolling]
+    [data, virtualItems, estimatedItemHeight, itemHeight, direction, itemStyle, measureElement, range, isScrolling]
   )
+
+  // Install plugins from props on the live kernel
+  useKernelPlugins(kernel, plugins)
+
+  // A list that does not overflow can't fire a scroll event, so ask for more data after layout
+  useLoadMoreWhenShort(containerRef, { count: data.length, totalSize, hasMore, isLoading, threshold, horizontal: direction === 'horizontal', onLoadMore })
 
   // Context value
   const contextValue = useMemo(() => ({
-    kernel: kernelRef.current,
-  }), [])
+    kernel,
+  }), [kernel])
 
   return (
     <ScrollexContext.Provider value={contextValue}>
@@ -217,15 +234,14 @@ function VirtualListInner<T>(
         }}
         role={role}
         aria-label={ariaLabel}
-        aria-rowcount={data.length}
+        aria-orientation={direction}
         tabIndex={tabIndex}
         {...restProps}
       >
         <div className={innerClassName} style={innerContainerStyles}>
           {virtualItems.map((virtualItem) => {
             const index = virtualItem.index
-            const item = data[index]
-            if (item === undefined) return null
+            if (index >= data.length) return null
 
             return (
               <div
@@ -233,7 +249,8 @@ function VirtualListInner<T>(
                 className={itemClassName}
                 data-index={index}
                 role="option"
-                aria-rowindex={index + 1}
+                aria-setsize={data.length}
+                aria-posinset={index + 1}
               >
                 {renderItem(createRenderProps(index))}
               </div>

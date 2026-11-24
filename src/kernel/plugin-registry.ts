@@ -52,7 +52,12 @@ export class PluginRegistry {
 
     // Install the plugin
     if (this.kernel && plugin.install) {
-      plugin.install(this.kernel)
+      try {
+        plugin.install(this.kernel)
+      } catch (error) {
+        this.plugins.delete(plugin.name)
+        throw error
+      }
       this.setupHooks(plugin)
     }
   }
@@ -73,10 +78,12 @@ export class PluginRegistry {
     // Teardown hooks first
     this.teardownHooks(plugin)
 
-    // Uninstall the plugin
-    plugin.uninstall?.()
-
-    this.plugins.delete(name)
+    // Uninstall the plugin; remove it even if uninstall throws
+    try {
+      plugin.uninstall?.()
+    } finally {
+      this.plugins.delete(name)
+    }
 
     return true
   }
@@ -292,7 +299,11 @@ export class PluginRegistry {
     const names = Array.from(this.plugins.keys()).reverse()
 
     for (const name of names) {
-      this.unregister(name)
+      try {
+        this.unregister(name)
+      } catch (error) {
+        console.error(`[Scrollex] Error uninstalling plugin "${name}":`, error)
+      }
     }
   }
 

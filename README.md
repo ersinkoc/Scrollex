@@ -19,7 +19,7 @@
 
 - **Zero Dependencies** - No runtime dependencies, React is a peer dependency
 - **High Performance** - 100k+ items at 60fps with RAF-based rendering
-- **Micro-Kernel Architecture** - Small core (~3KB) with tree-shakeable plugins
+- **Micro-Kernel Architecture** - Small core (~5KB) with tree-shakeable plugins
 - **Variable Heights** - Auto-measurement for dynamic content
 - **Infinite Scroll** - Built-in bidirectional infinite loading
 - **Multiple Layouts** - List, Grid, and Masonry components
@@ -191,25 +191,31 @@ Extend functionality with optional plugins:
 
 ```tsx
 import { VirtualList } from '@oxog/scrollex'
-import { infiniteLoaderPlugin, debugPanelPlugin } from '@oxog/scrollex/plugins'
+import { infiniteLoaderPlugin, debugPanel, DebugPanelOverlay } from '@oxog/scrollex/plugins'
 
-<VirtualList
-  data={items}
-  itemHeight={50}
-  plugins={[
-    infiniteLoaderPlugin({
-      threshold: 200,
-      onLoadMore: async (direction) => {
-        const newItems = await fetchMore(direction)
-        setItems(prev => [...prev, ...newItems])
-      }
-    }),
-    debugPanelPlugin({ position: 'bottom-right' }),
-  ]}
-  renderItem={({ item, style }) => (
-    <div style={style}>{item.name}</div>
-  )}
-/>
+// Create the debug panel once (outside render or in useMemo): the overlay reads its state
+const debug = debugPanel({ position: 'bottom-right' })
+
+<>
+  <VirtualList
+    data={items}
+    itemHeight={50}
+    plugins={[
+      infiniteLoaderPlugin({
+        threshold: 200,
+        onLoadMore: async (direction) => {
+          const newItems = await fetchMore(direction)
+          setItems(prev => [...prev, ...newItems])
+        }
+      }),
+      debug,
+    ]}
+    renderItem={({ item, style }) => (
+      <div style={style}>{item.name}</div>
+    )}
+  />
+  <DebugPanelOverlay plugin={debug} />
+</>
 ```
 
 ### Available Plugins
@@ -221,7 +227,9 @@ import { infiniteLoaderPlugin, debugPanelPlugin } from '@oxog/scrollex/plugins'
 | `autoMeasurerPlugin` | Automatic height measurement |
 | `infiniteLoaderPlugin` | Infinite scroll loading |
 | `scrollControllerPlugin` | Programmatic scroll control |
-| `debugPanelPlugin` | Visual debugging tools |
+| `debugPanel` + `DebugPanelOverlay` | Visual debugging tools |
+
+`VirtualList`, `VirtualGrid` and their hooks already register `listRendererPlugin` / `gridRendererPlugin` themselves: passing one in `plugins` throws "already registered". Use them directly only with a kernel.
 
 ## Infinite Scroll
 
@@ -283,7 +291,7 @@ Tested with **100,000+ items** at consistent 60fps.
 
 - Chrome 80+
 - Firefox 75+
-- Safari 13+
+- Safari 13.1+
 - Edge 80+
 
 ## Documentation

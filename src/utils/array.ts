@@ -222,6 +222,42 @@ export function findLastIndex<T>(
 }
 
 /**
+ * A usable column count: a whole number of at least 1 (anything else, such as 0, a fraction, NaN or Infinity,
+ * would divide by zero or fail to build the column arrays).
+ *
+ * @param columns - Requested number of columns
+ * @returns Whole number of columns, at least 1
+ */
+export function normalizeColumnCount(columns: number): number {
+  return Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : 1
+}
+
+/**
+ * Columns that fit a container when each needs at least `minColumnWidth` (plus the gap): at least 1, and 1 when the
+ * minimum is not usable (0 or less with no gap, NaN), which would divide by zero.
+ *
+ * @param containerWidth - Width the columns share
+ * @param minColumnWidth - Minimum column width
+ * @param gap - Horizontal gap between columns
+ * @returns Whole number of columns, at least 1
+ */
+export function autoColumnCount(containerWidth: number, minColumnWidth: number, gap: number): number {
+  const slot = minColumnWidth + gap
+  return slot > 0 ? normalizeColumnCount(Math.floor((containerWidth + gap) / slot)) : 1
+}
+
+/**
+ * A usable overscan: a whole number of at least 0 (NaN or a negative value would drop rows that are visible).
+ * Infinity stays: it means every row.
+ *
+ * @param overscan - Requested overscan
+ * @returns Whole number of rows, at least 0
+ */
+export function normalizeOverscan(overscan: number): number {
+  return Number.isNaN(overscan) ? 0 : Math.max(0, Math.floor(overscan))
+}
+
+/**
  * Create an array filled with a value from a factory function.
  *
  * @param length - Array length

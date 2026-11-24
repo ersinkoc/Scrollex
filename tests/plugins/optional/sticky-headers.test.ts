@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 import { stickyHeaders } from '../../../src/plugins/optional/sticky-headers.js'
 import type { Kernel, ScrollEvent } from '../../../src/types.js'
+import { createKernel } from '../../../src/kernel/kernel.js'
+import type { StickyHeadersAPI } from '../../../src/plugins/optional/sticky-headers.js'
 
 // Sample data structure for testing
 const testItems = [
@@ -115,7 +117,7 @@ describe('stickyHeaders', () => {
   })
 
   describe('getCurrentStickyHeader', () => {
-    it('should return null initially', () => {
+    it('should reflect the current scroll position initially', () => {
       const plugin = stickyHeaders({
         headerHeight: 40,
         isHeader,
@@ -124,7 +126,41 @@ describe('stickyHeaders', () => {
 
       plugin.install?.(kernel)
 
-      expect(plugin.api?.getCurrentStickyHeader()).toBeNull()
+      // Same answer a scroll event at scrollTop 0 gives: the first header is at offset 0
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(0)
+    })
+
+    it('should derive the sticky header when installed while scrolled', () => {
+      vi.mocked(kernel.getScrollPosition).mockReturnValue({ scrollTop: 170, scrollLeft: 0 })
+      const plugin = stickyHeaders({
+        headerHeight: 40,
+        isHeader,
+        getGroupId,
+      })
+
+      plugin.install?.(kernel)
+
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(3)
+    })
+
+    it('should recompute the sticky header when the items change', () => {
+      vi.mocked(kernel.getScrollPosition).mockReturnValue({ scrollTop: 170, scrollLeft: 0 })
+      let headers = [0, 3, 6]
+      const plugin = stickyHeaders({
+        headerHeight: 40,
+        isHeader: (index) => headers.includes(index),
+        getGroupId,
+      })
+      plugin.install?.(kernel)
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(3)
+
+      headers = [0, 2, 6]
+      plugin.hooks?.onItemsChange?.(8, 8)
+
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(2)
+      headers = [0, 1, 6]
+      plugin.hooks?.onItemsChange?.(8, 8)
+      expect(plugin.api?.getCurrentStickyHeader()).toBe(1)
     })
 
     it('should update on scroll', () => {
@@ -360,5 +396,31 @@ describe('stickyHeaders', () => {
 
       expect(plugin.api?.getHeaderIndices()).toEqual([])
     })
+  })
+})
+
+describe('stickyHeaders on a horizontal list', () => {
+  function currentAt(horizontal: boolean, offset: number): number | null {
+  const el = document.createElement('div')
+  let pos = 0
+  Object.defineProperty(el, horizontal ? 'scrollLeft' : 'scrollTop', { get: () => pos, set: (v: number) => { pos = v }, configurable: true })
+  Object.defineProperty(el, 'clientWidth', { get: () => 300, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { get: () => 300, configurable: true })
+  const kernel = createKernel({ itemCount: 20, estimatedItemHeight: 40, overscan: 0, direction: horizontal ? 'horizontal' : 'vertical' })
+  const plugin = stickyHeaders({ headerHeight: 40, isHeader: (i) => i % 5 === 0, getGroupId: (i) => String(Math.floor(i / 5)) })
+  kernel.register(plugin)
+  kernel.attach(el)
+  kernel.emit({ type: 'scroll', scrollTop: horizontal ? 0 : offset, scrollLeft: horizontal ? offset : 0, deltaY: 0, deltaX: 0, direction: 'none', timestamp: 0 } as never)
+  const current = (plugin.api as StickyHeadersAPI).getCurrentStickyHeader()
+  kernel.destroy()
+  return current
+}
+
+  it('should track the headers by scrollTop in a vertical list (control)', () => {
+    expect([currentAt(false, 0), currentAt(false, 300), currentAt(false, 450)]).toEqual([0, 5, 10])
+  })
+
+  it('should track the headers by scrollLeft in a horizontal list', () => {
+    expect([currentAt(true, 0), currentAt(true, 300), currentAt(true, 450)]).toEqual([0, 5, 10])
   })
 })

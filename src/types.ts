@@ -288,10 +288,10 @@ export interface Plugin {
   version: string
   /** Plugin type (core or optional) */
   type: PluginType
-  /** Install plugin into kernel */
-  install?(kernel: Kernel): void
-  /** Uninstall plugin */
-  uninstall?(): void
+  /** Install plugin into kernel (required: the registry rejects a plugin without it) */
+  install(kernel: Kernel): void
+  /** Uninstall plugin (required: the registry rejects a plugin without it) */
+  uninstall(): void
   /** Plugin hooks */
   hooks?: PluginHooks
   /** Public API exposed by the plugin */
@@ -330,6 +330,8 @@ export interface KernelOptions {
   direction: 'vertical' | 'horizontal'
   /** Function to get item key */
   getItemKey?: (index: number) => string | number
+  /** Space before the first item (px): item offsets, the total size and scrollToIndex include it (default 0) */
+  paddingStart?: number
 }
 
 /**
@@ -350,7 +352,7 @@ export interface Kernel {
   /** Get current scroll position */
   getScrollPosition(): ScrollPosition
   /** Set scroll position directly */
-  setScrollPosition(position: ScrollPosition): void
+  setScrollPosition(position: Partial<ScrollPosition>): void
   /** Scroll to offset */
   scrollTo(offset: number, options?: ScrollOptions): void
   /** Scroll to item index */
@@ -381,9 +383,11 @@ export interface Kernel {
   // Events
   /** Emit an event */
   emit(event: KernelEvent): void
-  /** Subscribe to an event type */
+  /** Subscribe to an event type; the handler receives that event's payload */
+  on<K extends KernelEvent['type']>(eventType: K, handler: EventHandler<Extract<KernelEvent, { type: K }>>): Unsubscribe
   on<T extends KernelEvent>(eventType: T['type'], handler: EventHandler<T>): Unsubscribe
   /** Unsubscribe from an event type */
+  off<K extends KernelEvent['type']>(eventType: K, handler: EventHandler<Extract<KernelEvent, { type: K }>>): void
   off<T extends KernelEvent>(eventType: T['type'], handler: EventHandler<T>): void
 
   // Configuration
@@ -556,8 +560,9 @@ export interface GridGap {
 
 /**
  * VirtualGrid component props.
+ * Vertical only, with a fixed row height: `direction` and `estimatedItemHeight` are not part of the props.
  */
-export interface VirtualGridProps<T> extends Omit<VirtualListProps<T>, 'itemHeight' | 'renderItem'> {
+export interface VirtualGridProps<T> extends Omit<VirtualListProps<T>, 'itemHeight' | 'renderItem' | 'direction' | 'estimatedItemHeight'> {
   /** Render function for grid items */
   renderItem: (props: GridRenderItemProps<T>) => ReactNode
   /** Fixed row height */
@@ -638,14 +643,20 @@ export interface UseVirtualListReturn {
   invalidateMeasurement: (index: number) => void
   /** Invalidate all measurements */
   invalidateAllMeasurements: () => void
+  /** Kernel instance driving this virtualizer */
+  kernel: Kernel
 }
 
 /**
  * Options for useVirtualGrid hook.
+ * (Not the list hook's `estimatedItemHeight`, `horizontal`, `paddingStart`, `paddingEnd`, `scrollMargin` or
+ * `getItemHeight`: the grid hook reads none of them.)
  */
-export interface UseVirtualGridOptions extends Omit<UseVirtualListOptions, 'getItemHeight'> {
-  /** Number of columns */
-  columns: number
+export interface UseVirtualGridOptions extends Omit<UseVirtualListOptions, 'getItemHeight' | 'estimatedItemHeight' | 'horizontal' | 'paddingStart' | 'paddingEnd' | 'scrollMargin'> {
+  /** Number of columns, or 'auto' to fit as many columns of minColumnWidth as possible */
+  columns: number | 'auto'
+  /** Minimum column width for auto columns */
+  minColumnWidth?: number
   /** Row height */
   rowHeight: number
   /** Gap between items */
@@ -670,12 +681,18 @@ export interface UseVirtualGridReturn extends UseVirtualListReturn {
 export interface UseVirtualMasonryOptions {
   /** Total number of items */
   count: number
-  /** Number of columns */
-  columns: number
+  /** Number of columns, or 'auto' to fit as many as `minColumnWidth` allows */
+  columns: number | 'auto'
+  /** Minimum column width for 'auto' columns (default 200) */
+  minColumnWidth?: number
+  /** Initial scroll offset */
+  initialOffset?: number
+  /** Function to get item key */
+  getItemKey?: (index: number) => string | number
   /** Function to get item height given index and column width */
   getItemHeight: (index: number, columnWidth: number) => number
   /** Gap between items */
-  gap?: number
+  gap?: number | GridGap
   /** Container ref */
   containerRef: RefObject<HTMLElement>
   /** Number of extra items to render */

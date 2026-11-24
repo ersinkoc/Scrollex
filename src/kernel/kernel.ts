@@ -17,6 +17,7 @@ import { ScrollEngine } from './scroll-engine.js'
 import { ViewportManager } from './viewport.js'
 import { RangeCalculator } from './range-calculator.js'
 import { PluginRegistry } from './plugin-registry.js'
+import { normalizeOverscan } from '../utils/array.js'
 
 /**
  * Default kernel options.
@@ -37,10 +38,12 @@ const DEFAULT_OPTIONS: KernelOptions = {
  */
 export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
   const config: KernelOptions = { ...DEFAULT_OPTIONS, ...options }
+  config.overscan = normalizeOverscan(config.overscan)
 
   // Core components
   const eventBus = new EventBus()
   const scrollEngine = new ScrollEngine()
+  scrollEngine.setDirection(config.direction)
   const viewportManager = new ViewportManager()
   const rangeCalculator = new RangeCalculator({
     itemCount: config.itemCount,
@@ -48,6 +51,13 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
     overscan: config.overscan,
   })
   const pluginRegistry = new PluginRegistry()
+
+  /** Space before the first item: item offsets and the total size include it */
+  const startPadding = (): number => config.paddingStart ?? 0
+
+  // The first range is announced even when it equals the empty range the kernel starts with (a single item,
+  // or items taller than the viewport with no overscan): listeners build their items from the event
+  let rangeAnnounced = false
 
   // State
   let currentRange: Range = {
@@ -79,10 +89,17 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
 
     // Scroll Control
     getScrollPosition(): ScrollPosition {
-      return scrollEngine.getScrollPosition()
+      const position = scrollEngine.getScrollPosition()
+      // The position along the list's own axis, and how far along the scroll range it is
+      const horizontal = config.direction === 'horizontal'
+      const offset = horizontal ? position.scrollLeft : position.scrollTop
+      const viewport = viewportManager.getViewport()
+      const maxScroll = rangeCalculator.getTotalSize() + startPadding() - (horizontal ? viewport.width : viewport.height)
+      const percentage = maxScroll > 0 ? Math.min(1, Math.max(0, offset / maxScroll)) : 0
+      return { ...position, offset, percentage }
     },
 
-    setScrollPosition(position: ScrollPosition): void {
+    setScrollPosition(position: Partial<ScrollPosition>): void {
       scrollEngine.setScrollPosition(position)
     },
 
@@ -93,9 +110,11 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
     scrollToIndex(index: number, options: ScrollToIndexOptions = {}): void {
       const { align = 'auto', offset: additionalOffset = 0, ...scrollOptions } = options
 
-      const itemOffset = rangeCalculator.getItemOffset(index)
+      const itemOffset = rangeCalculator.getItemOffset(index) + startPadding()
       const itemSize = rangeCalculator.getItemSize(index)
       const viewport = viewportManager.getViewport()
+      const horizontal = config.direction === 'horizontal'
+      const viewportSize = horizontal ? viewport.width : viewport.height
 
       let targetOffset: number
 
@@ -104,16 +123,16 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
           targetOffset = itemOffset
           break
         case 'center':
-          targetOffset = itemOffset - viewport.height / 2 + itemSize / 2
+          targetOffset = itemOffset - viewportSize / 2 + itemSize / 2
           break
         case 'end':
-          targetOffset = itemOffset - viewport.height + itemSize
+          targetOffset = itemOffset - viewportSize + itemSize
           break
         case 'auto':
         default: {
           const scrollPosition = scrollEngine.getScrollPosition()
-          const visibleStart = scrollPosition.scrollTop
-          const visibleEnd = visibleStart + viewport.height
+          const visibleStart = horizontal ? scrollPosition.scrollLeft : scrollPosition.scrollTop
+          const visibleEnd = visibleStart + viewportSize
           const itemEnd = itemOffset + itemSize
 
           if (itemOffset < visibleStart) {
@@ -121,7 +140,7 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
             targetOffset = itemOffset
           } else if (itemEnd > visibleEnd) {
             // Item is below viewport
-            targetOffset = itemEnd - viewport.height
+            targetOffset = itemEnd - viewportSize
           } else {
             // Item is already visible, no scroll needed
             return
@@ -131,7 +150,7 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
       }
 
       // Clamp to valid range
-      const maxScroll = Math.max(0, rangeCalculator.getTotalSize() - viewport.height)
+      const maxScroll = Math.max(0, rangeCalculator.getTotalSize() + startPadding() - viewportSize)
       targetOffset = Math.max(0, Math.min(targetOffset + additionalOffset, maxScroll))
 
       scrollEngine.scrollTo(targetOffset, scrollOptions)
@@ -159,6 +178,11 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
 
     // Measurement
     measureItem(index: number, size: number): void {
+      // A size that is not a finite non-negative number would poison the running totals, and an index that
+      // is not one of the current items would apply to a different item once the list changes
+      if (!Number.isFinite(size) || size < 0) return
+      if (!Number.isInteger(index) || index < 0 || index >= rangeCalculator.getItemCount()) return
+
       const previousHeight = rangeCalculator.setItemHeight(index, size)
 
       eventBus.emit({
@@ -177,13 +201,15 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
     },
 
     invalidateMeasurement(index: number): void {
+      const wasMeasured = rangeCalculator.getCachedHeight(index) !== undefined
       rangeCalculator.invalidate(index)
-      updateVisibleRange()
+      // Offsets and the total size moved even if the visible indices did not
+      updateVisibleRange(wasMeasured)
     },
 
     invalidateAllMeasurements(): void {
       rangeCalculator.invalidateAll()
-      updateVisibleRange()
+      updateVisibleRange(true)
     },
 
     getEstimatedHeight(): number {
@@ -191,7 +217,7 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
     },
 
     getItemOffset(index: number): number {
-      return rangeCalculator.getItemOffset(index)
+      return rangeCalculator.getItemOffset(index) + startPadding()
     },
 
     // Events
@@ -230,25 +256,34 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
         }
       }
 
+      let layoutChanged = false
+      if (newOptions.paddingStart !== undefined) {
+        layoutChanged = newOptions.paddingStart !== startPadding()
+        config.paddingStart = newOptions.paddingStart
+      }
+
       if (newOptions.estimatedItemHeight !== undefined) {
+        layoutChanged = layoutChanged || newOptions.estimatedItemHeight !== config.estimatedItemHeight
         config.estimatedItemHeight = newOptions.estimatedItemHeight
         rangeCalculator.setEstimatedHeight(newOptions.estimatedItemHeight)
       }
 
       if (newOptions.overscan !== undefined) {
-        config.overscan = newOptions.overscan
-        rangeCalculator.setOverscan(newOptions.overscan)
+        config.overscan = normalizeOverscan(newOptions.overscan)
+        rangeCalculator.setOverscan(config.overscan)
       }
 
       if (newOptions.direction !== undefined) {
         config.direction = newOptions.direction
+        scrollEngine.setDirection(newOptions.direction)
       }
 
       if (newOptions.getItemKey !== undefined) {
         config.getItemKey = newOptions.getItemKey
       }
 
-      updateVisibleRange()
+      // A new estimate moves the offsets of unmeasured items and the total size even if the visible indices stay
+      updateVisibleRange(layoutChanged)
     },
 
     getOptions(): KernelOptions {
@@ -265,7 +300,7 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
     },
 
     getTotalSize(): number {
-      return rangeCalculator.getTotalSize()
+      return rangeCalculator.getTotalSize() + startPadding()
     },
 
     // Lifecycle
@@ -273,6 +308,8 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
       if (attached) {
         kernel.detach()
       }
+
+      const previousViewport = viewportManager.getViewport()
 
       scrollEngine.attach(container)
       viewportManager.attach(container)
@@ -297,6 +334,17 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
         updateVisibleRange()
       })
 
+      // Attaching can change the viewport (plugins installed earlier saw an empty one): tell them
+      const viewport = viewportManager.getViewport()
+      if (
+        viewport.width !== previousViewport.width ||
+        viewport.height !== previousViewport.height ||
+        viewport.scrollWidth !== previousViewport.scrollWidth ||
+        viewport.scrollHeight !== previousViewport.scrollHeight
+      ) {
+        eventBus.emit({ type: 'resize', viewport, previousViewport })
+      }
+
       // Initial range calculation
       updateVisibleRange()
     },
@@ -319,15 +367,18 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
 
   /**
    * Update the visible range and emit event if changed.
+   *
+   * @param layoutChanged - Offsets / sizes changed: emit even when the visible indices did not
    */
-  function updateVisibleRange(): void {
+  function updateVisibleRange(layoutChanged = false): void {
     if (!attached) return
 
     const viewport = viewportManager.getViewport()
     const scrollPosition = scrollEngine.getScrollPosition()
-    const scrollOffset = config.direction === 'vertical'
+    // Items start after the padding, so the part of the viewport that shows items starts that much earlier
+    const scrollOffset = (config.direction === 'vertical'
       ? scrollPosition.scrollTop
-      : scrollPosition.scrollLeft
+      : scrollPosition.scrollLeft) - startPadding()
     const viewportSize = config.direction === 'vertical'
       ? viewport.height
       : viewport.width
@@ -337,11 +388,14 @@ export function createKernel(options: Partial<KernelOptions> = {}): Kernel {
 
     // Check if range changed
     if (
+      layoutChanged ||
+      !rangeAnnounced ||
       currentRange.startIndex !== previousRange.startIndex ||
       currentRange.endIndex !== previousRange.endIndex ||
       currentRange.overscanStartIndex !== previousRange.overscanStartIndex ||
       currentRange.overscanEndIndex !== previousRange.overscanEndIndex
     ) {
+      rangeAnnounced = true
       eventBus.emit({
         type: 'visible-range-change',
         range: currentRange,

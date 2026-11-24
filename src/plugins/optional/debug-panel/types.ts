@@ -75,9 +75,9 @@ export interface DebugPanelOptions {
   theme?: DebugPanelTheme
   /** Show FPS counter */
   showFps?: boolean
-  /** Show viewport overlay */
+  /** Show viewport overlay. Declared, not implemented yet: the switch only changes a flag */
   showViewportOverlay?: boolean
-  /** Show item boundaries */
+  /** Show item boundaries. Declared, not implemented yet: the switch only changes a flag */
   showItemBoundaries?: boolean
   /** Log events to console */
   logEvents?: boolean

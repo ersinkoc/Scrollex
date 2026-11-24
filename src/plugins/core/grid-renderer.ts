@@ -1,4 +1,5 @@
 import type { Plugin, Kernel, VirtualItem, Range, GridGap } from '../../types.js'
+import { autoColumnCount, normalizeColumnCount } from '../../utils/array.js'
 
 /**
  * Grid renderer plugin options.
@@ -14,6 +15,8 @@ export interface GridRendererOptions {
   gap?: number | GridGap
   /** Get item key for React reconciliation */
   getItemKey?: (index: number) => string | number
+  /** Width the columns share, when it is not the viewport width (the content box of a padded container) */
+  getContainerWidth?: () => number | undefined
 }
 
 /**
@@ -50,11 +53,12 @@ export function gridRendererPlugin(options: GridRendererOptions): Plugin {
     rowHeight,
     gap = 0,
     getItemKey = (index) => index,
+    getContainerWidth,
   } = options
 
   let kernel: Kernel | null = null
   let virtualItems: VirtualItem[] = []
-  let columnCount = typeof columns === 'number' ? columns : 1
+  let columnCount = typeof columns === 'number' ? normalizeColumnCount(columns) : 1
   let columnWidth = 0
   let gapX = typeof gap === 'number' ? gap : gap.x
   let gapY = typeof gap === 'number' ? gap : gap.y
@@ -64,10 +68,10 @@ export function gridRendererPlugin(options: GridRendererOptions): Plugin {
    */
   function calculateColumns(containerWidth: number): void {
     if (typeof columns === 'number') {
-      columnCount = columns
+      columnCount = normalizeColumnCount(columns)
     } else {
       // Auto columns based on container width
-      columnCount = Math.max(1, Math.floor((containerWidth + gapX) / (minColumnWidth + gapX)))
+      columnCount = autoColumnCount(containerWidth, minColumnWidth, gapX)
     }
 
     // Calculate column width
@@ -148,7 +152,7 @@ export function gridRendererPlugin(options: GridRendererOptions): Plugin {
     if (!kernel) return
 
     const viewport = kernel.getViewport()
-    calculateColumns(viewport.width)
+    calculateColumns(getContainerWidth?.() ?? viewport.width)
     virtualItems = buildVirtualItems()
   }
 
@@ -158,7 +162,8 @@ export function gridRendererPlugin(options: GridRendererOptions): Plugin {
     },
 
     getTotalHeight(): number {
-      return getRowCount() * (rowHeight + gapY) - gapY
+      const rowCount = getRowCount()
+      return rowCount === 0 ? 0 : rowCount * (rowHeight + gapY) - gapY
     },
 
     getColumnCount(): number {

@@ -61,19 +61,37 @@ export interface DragToReorderAPI {
 }
 
 /**
+ * The parts of a drag event the plugin reads. The native DragEvent and React's DragEvent both satisfy it, so
+ * the handler props can be spread on a React element.
+ */
+export interface DragEventLike {
+  clientX: number
+  clientY: number
+  dataTransfer: DataTransfer | null
+  currentTarget: EventTarget | null
+  preventDefault(): void
+}
+
+/**
  * Props for drag handle element.
  */
 export interface DragHandleProps {
   draggable: boolean
-  onDragStart: (event: DragEvent) => void
-  onDragEnd: (event: DragEvent) => void
-  onDragOver: (event: DragEvent) => void
-  onDragEnter: (event: DragEvent) => void
-  onDragLeave: (event: DragEvent) => void
-  onDrop: (event: DragEvent) => void
+  onDragStart: (event: DragEventLike) => void
+  onDragEnd: (event: DragEventLike) => void
+  onDragOver: (event: DragEventLike) => void
+  onDragEnter: (event: DragEventLike) => void
+  onDragLeave: (event: DragEventLike) => void
+  onDrop: (event: DragEventLike) => void
   'data-drag-index': string
   'aria-grabbed': boolean
 }
+
+/**
+ * The drag in progress, kept per kernel: a plugin created again on a parent re-render (for instance because
+ * onDragStart sets state) takes over the drag instead of dropping it.
+ */
+const dragByKernel = new WeakMap<Kernel, { dragged: number | null; target: number | null }>()
 
 /**
  * Creates a drag to reorder plugin.
@@ -88,20 +106,22 @@ export interface DragHandleProps {
  *
  * const [items, setItems] = useState(initialItems)
  *
+ * // Create the plugin once: it keeps the drag in progress, and its api hands out the props for the rows
+ * const dnd = useMemo(() => dragToReorder({
+ *   onReorder: (fromIndex, toIndex) => setItems((current) => {
+ *     const newItems = [...current]
+ *     const [removed] = newItems.splice(fromIndex, 1)
+ *     newItems.splice(toIndex, 0, removed)
+ *     return newItems
+ *   }),
+ * }), [])
+ *
  * <VirtualList
  *   data={items}
- *   plugins={[dragToReorder({
- *     onReorder: (fromIndex, toIndex) => {
- *       const newItems = [...items]
- *       const [removed] = newItems.splice(fromIndex, 1)
- *       newItems.splice(toIndex, 0, removed)
- *       setItems(newItems)
- *     },
- *   })]}
- *   renderItem={({ item, index, dragHandleProps }) => (
- *     <Row item={item}>
- *       <DragHandle {...dragHandleProps} />
- *     </Row>
+ *   itemHeight={48}
+ *   plugins={[dnd]}
+ *   renderItem={({ item, index, style }) => (
+ *     <Row item={item} style={style} {...dnd.api.getDragHandleProps(index)} />
  *   )}
  * />
  * ```
@@ -127,10 +147,14 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
   let dropTargetIndex: number | null = null
   let autoScrollTimer: ReturnType<typeof setInterval> | null = null
 
+  function rememberDrag(): void {
+    if (kernel) dragByKernel.set(kernel, { dragged: draggedIndex, target: dropTargetIndex })
+  }
+
   /**
    * Handle drag start.
    */
-  function handleDragStart(event: DragEvent, index: number): void {
+  function handleDragStart(event: DragEventLike, index: number): void {
     if (!enabled || !canDrag(index)) {
       event.preventDefault()
       return
@@ -138,6 +162,7 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
 
     draggedIndex = index
     dropTargetIndex = index
+    rememberDrag()
 
     // Set drag data
     event.dataTransfer?.setData('text/plain', String(index))
@@ -156,17 +181,10 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
   /**
    * Handle drag end.
    */
-  function handleDragEnd(event: DragEvent): void {
+  function finishDrag(): void {
     const currentDraggedIndex = draggedIndex
-    const currentDropTargetIndex = dropTargetIndex
 
     stopAutoScroll()
-
-    if (currentDraggedIndex !== null && currentDropTargetIndex !== null && currentDraggedIndex !== currentDropTargetIndex) {
-      if (canDrop(currentDraggedIndex, currentDropTargetIndex)) {
-        onReorder(currentDraggedIndex, currentDropTargetIndex)
-      }
-    }
 
     if (currentDraggedIndex !== null) {
       onDragEnd?.(currentDraggedIndex)
@@ -174,19 +192,22 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
 
     draggedIndex = null
     dropTargetIndex = null
+    rememberDrag()
+  }
+
+  // dragend fires on the source row, which a virtual list may have unmounted, and also fires for
+  // cancelled drags; it only finishes the drag. The reorder happens on drop.
+  function handleDragEnd(_event: DragEventLike): void {
+    finishDrag()
   }
 
   /**
    * Handle drag over.
    */
-  function handleDragOver(event: DragEvent, index: number): void {
+  function handleDragOver(event: DragEventLike, index: number): void {
     if (draggedIndex === null) return
 
     event.preventDefault()
-
-    if (event.dataTransfer) {
-      event.dataTransfer.dropEffect = canDrop(draggedIndex, index) ? 'move' : 'none'
-    }
 
     // Calculate drop position based on mouse position
     const target = event.currentTarget as HTMLElement
@@ -208,28 +229,44 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
     }
 
     dropTargetIndex = Math.max(0, Math.min(newDropTarget, (kernel?.getItemCount() ?? 1) - 1))
+    rememberDrag()
+
+    // The drop asks canDrop about this same index (it is what onReorder receives), so the cursor must too
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = canDrop(draggedIndex, dropTargetIndex) ? 'move' : 'none'
+    }
   }
 
   /**
    * Handle drag enter.
    */
-  function handleDragEnter(event: DragEvent, _index: number): void {
+  function handleDragEnter(event: DragEventLike, _index: number): void {
     event.preventDefault()
   }
 
   /**
    * Handle drag leave.
    */
-  function handleDragLeave(_event: DragEvent, _index: number): void {
+  function handleDragLeave(_event: DragEventLike, _index: number): void {
     // Nothing to do
   }
 
   /**
    * Handle drop.
    */
-  function handleDrop(event: DragEvent, _index: number): void {
+  function handleDrop(event: DragEventLike, _index: number): void {
     event.preventDefault()
-    // Actual reorder happens in dragEnd
+
+    const currentDraggedIndex = draggedIndex
+    const currentDropTargetIndex = dropTargetIndex
+
+    if (currentDraggedIndex !== null && currentDropTargetIndex !== null && currentDraggedIndex !== currentDropTargetIndex) {
+      if (canDrop(currentDraggedIndex, currentDropTargetIndex)) {
+        onReorder(currentDraggedIndex, currentDropTargetIndex)
+      }
+    }
+
+    finishDrag()
   }
 
   /**
@@ -266,12 +303,12 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
   function getDragHandleProps(index: number): DragHandleProps {
     return {
       draggable: enabled && canDrag(index),
-      onDragStart: (event: DragEvent) => handleDragStart(event, index),
-      onDragEnd: (event: DragEvent) => handleDragEnd(event),
-      onDragOver: (event: DragEvent) => handleDragOver(event, index),
-      onDragEnter: (event: DragEvent) => handleDragEnter(event, index),
-      onDragLeave: (event: DragEvent) => handleDragLeave(event, index),
-      onDrop: (event: DragEvent) => handleDrop(event, index),
+      onDragStart: (event: DragEventLike) => handleDragStart(event, index),
+      onDragEnd: (event: DragEventLike) => handleDragEnd(event),
+      onDragOver: (event: DragEventLike) => handleDragOver(event, index),
+      onDragEnter: (event: DragEventLike) => handleDragEnter(event, index),
+      onDragLeave: (event: DragEventLike) => handleDragLeave(event, index),
+      onDrop: (event: DragEventLike) => handleDrop(event, index),
       'data-drag-index': String(index),
       'aria-grabbed': draggedIndex === index,
     }
@@ -294,6 +331,7 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
       stopAutoScroll()
       draggedIndex = null
       dropTargetIndex = null
+      rememberDrag()
     },
 
     enable(): void {
@@ -319,6 +357,15 @@ export function dragToReorder(options: DragToReorderOptions): Plugin {
 
     install(k: Kernel): void {
       kernel = k
+
+      const previous = dragByKernel.get(k)
+      if (previous && previous.dragged !== null && enabled) {
+        draggedIndex = previous.dragged
+        dropTargetIndex = previous.target
+        if (autoScroll) startAutoScroll()
+      } else if (previous) {
+        rememberDrag()
+      }
     },
 
     uninstall(): void {
