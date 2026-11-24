@@ -48,7 +48,7 @@ describe('useMeasure', () => {
     mockResizeObserverInstance = null
 
     // Mock ResizeObserver
-    global.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn((callback) => {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver
@@ -348,7 +348,7 @@ describe('useMeasureMany', () => {
     vi.useFakeTimers()
     mockResizeObserverInstance = null
 
-    global.ResizeObserver = vi.fn((callback) => {
+    globalThis.ResizeObserver = vi.fn((callback) => {
       mockResizeObserverInstance = new MockResizeObserver(callback)
       return mockResizeObserverInstance
     }) as unknown as typeof ResizeObserver

@@ -71,8 +71,8 @@ function createDragEvent(type: string, options: {
     dataTransfer: dataTransfer ?? {
       setData: vi.fn(),
       getData: vi.fn(() => ''),
-      effectAllowed: 'uninitialized' as DataTransferEffectAllowed,
-      dropEffect: 'none' as DataTransferDropEffect,
+      effectAllowed: 'uninitialized' as DataTransfer['effectAllowed'],
+      dropEffect: 'none' as DataTransfer['dropEffect'],
     },
     currentTarget: currentTarget ?? {
       getBoundingClientRect: () => ({

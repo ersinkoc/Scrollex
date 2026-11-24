@@ -5,6 +5,18 @@ import { listRendererPlugin } from '../../../src/plugins/core/list-renderer.js'
 import type { DebugPanelAPI } from '../../../src/plugins/optional/debug-panel/types.js'
 import type { Kernel, KernelEvent } from '../../../src/types.js'
 
+/**
+ * The first handler the plugin subscribed with `kernel.on`.
+ *
+ * Indexing `mock.calls` is possibly undefined under `noUncheckedIndexedAccess`, and a plugin that subscribed nothing
+ * is a broken fixture: fail with a readable message instead of calling `undefined`.
+ */
+function firstKernelHandler(kernel: Kernel): (event: unknown) => void {
+  const call = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0]
+  if (!call?.[0]) throw new Error('expected the plugin to subscribe to a kernel event')
+  return call[1] as (event: unknown) => void
+}
+
 // Mock kernel
 function createMockKernel(options: {
   itemCount?: number
@@ -441,7 +453,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -464,7 +476,7 @@ describe('debugPanel', () => {
       plugin.api?.setActiveTab('events')
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -481,7 +493,7 @@ describe('debugPanel', () => {
       expect(plugin.api?.getActiveTab()).toBe('stats')
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -495,7 +507,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting multiple events
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
 
       for (let i = 0; i < 10; i++) {
         onHandler({ type: 'scroll', scrollTop: i * 100 })
@@ -513,7 +525,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting multiple events
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
       onHandler({ type: 'scroll', scrollTop: 200 })
 
@@ -527,7 +539,7 @@ describe('debugPanel', () => {
       plugin.install?.(kernel)
 
       // Simulate kernel emitting an event
-      const onHandler = (kernel.on as ReturnType<typeof vi.fn>).mock.calls[0][1]
+      const onHandler = firstKernelHandler(kernel)
       onHandler({ type: 'scroll', scrollTop: 100 })
 
       const log = plugin.api?.getEventLog()
@@ -569,9 +581,9 @@ describe('debugPanel', () => {
     it('should include memory usage when available', async () => {
       // Mock performance.memory (Chrome-only API)
       const mockMemory = { usedJSHeapSize: 50 * 1024 * 1024 } // 50 MB
-      const originalPerformance = global.performance
+      const originalPerformance = globalThis.performance
 
-      Object.defineProperty(global.performance, 'memory', {
+      Object.defineProperty(globalThis.performance, 'memory', {
         value: mockMemory,
         configurable: true,
       })
@@ -586,14 +598,14 @@ describe('debugPanel', () => {
       expect(stats?.memoryUsage).toBe(50)
 
       // Clean up
-      delete (global.performance as any).memory
+      delete (globalThis.performance as any).memory
     })
 
     it('should handle memory being undefined', async () => {
       // Ensure performance.memory is defined but returns undefined
-      const originalPerformance = global.performance
+      const originalPerformance = globalThis.performance
 
-      Object.defineProperty(global.performance, 'memory', {
+      Object.defineProperty(globalThis.performance, 'memory', {
         value: undefined,
         configurable: true,
       })
@@ -608,7 +620,7 @@ describe('debugPanel', () => {
       expect(stats?.memoryUsage).toBeNull()
 
       // Clean up
-      delete (global.performance as any).memory
+      delete (globalThis.performance as any).memory
     })
   })
 })
