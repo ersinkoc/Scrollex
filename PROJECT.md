@@ -1066,7 +1066,7 @@ function measureItems(indices: number[]) {
 - **Runtime**: Browser only
 - **React Version**: 17+ (hooks required)
 - **Module Format**: ESM + CJS (dual package)
-- **Node.js Version**: ^22.18.0 || ^24.11.0 || >=26.0.0 (for build/test; vitest 5 and tsup 9)
+- **Node.js Version**: >= 18 for the published package; ^22.18.0 || ^24.11.0 || >=26.0.0 for build/test (vitest 5 and tsup 9), declared as dev-only `devEngines`
 - **TypeScript Version**: >= 5.0, strict mode
 
 ### Browser APIs Used
