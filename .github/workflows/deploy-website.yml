@@ -19,8 +19,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  gate:
+    name: Wait for website checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - name: Wait for the CI website job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_NAME: Website install, audit and build
+        run: |
+          for attempt in $(seq 1 120); do
+            status=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?per_page=100" \
+              --jq '.check_runs[] | select(.name == env.JOB_NAME) | "\(.status) \(.conclusion // "")"' \
+              2>/dev/null | head -n 1 || true)
+            echo "attempt ${attempt}: ${status:-<not reported yet>}"
+            case "$status" in
+              "completed success")
+                echo "CI website job passed."
+                exit 0
+                ;;
+              "completed "*)
+                echo "::error::CI website job did not pass (${status})."
+                exit 1
+                ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Timed out waiting for the CI website job."
+          exit 1
+
   build:
     name: Build
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
