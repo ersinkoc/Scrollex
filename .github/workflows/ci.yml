@@ -54,6 +54,10 @@ jobs:
         working-directory: ./website
         run: npm ci
 
+      - name: Typecheck
+        working-directory: ./website
+        run: npm run typecheck
+
       - name: Audit
         working-directory: ./website
         run: npm audit
