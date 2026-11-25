@@ -33,7 +33,7 @@ jobs:
       - name: Install & Build
         working-directory: ./website
         run: |
-          npm install
+          npm ci
           npm run build
 
       - uses: actions/configure-pages@v4
