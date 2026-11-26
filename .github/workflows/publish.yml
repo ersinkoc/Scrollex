@@ -27,6 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Fail before the install, typecheck, tests and build if this version is
+      # already on the registry, so a re-run of a tag that did publish only
+      # costs one API call instead of the whole suite.
+      - name: Check that the version is not already on npm
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@oxog/scrollex@${version}" version >/dev/null 2>&1; then
+            echo "::error::@oxog/scrollex@${version} is already published on npm. Bump the version and tag the new commit instead of re-running this tag."
+            exit 1
+          fi
+          echo "@oxog/scrollex@${version} is not on npm yet."
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'

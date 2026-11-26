@@ -1,7 +1,12 @@
 name: CI
 
+# Releases are tagged, and publish.yml runs the suite for a tag, so this
+# workflow only covers branch pushes and pull requests. Without the branches
+# filter a tag push would run the full suite twice.
 on:
   push:
+    branches:
+      - '**'
   pull_request:
   workflow_dispatch:
 
