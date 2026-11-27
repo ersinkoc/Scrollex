@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-11-27
+
+### Changed
+- Releases are cut by the `Publish` workflow from a `v*` tag: it checks the tag against `package.json` and that the version is not already on npm before installing anything, then builds, tests and publishes the tagged commit with a provenance attestation.
+- A prerelease version such as `1.0.4-beta.0` publishes under its own dist-tag (`beta`), so a test release can be installed with `@beta` without moving `latest`.
+- No source file changed since 1.0.2: this release ships the same code with the release process now living in the repository, and `CI` no longer runs on tags, so `Publish` is the only workflow a release triggers.
+
+### Internal
+- CI and tests only, no runtime change: the suite runs on the `vmThreads` pool behind a coverage gate that `CI` enforces; the documentation website is installed with `npm ci`, typechecked and built in `CI`, and the Pages deploy waits for those checks and runs off Node 20; `prismjs` is deduped onto 1.30.0.
+- The `1.0.x` changelog version links point at their tag pages instead of commit ranges.
+- `npm run build` cleans `dist` once, before `tsup` starts: the first tsup config used to clean it while the plugins config was writing `dist/plugins`, which occasionally left `plugins/index.d.ts` and `plugins/index.d.cts` out of the build; the same command now also fails loudly if any of the 12 expected `dist` files is missing after `tsup` finishes, so a partial build can never reach npm.
+
 ## [1.0.2] - 2026-11-24
 
 ### Changed
@@ -110,7 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/ersinkoc/Scrollex/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/ersinkoc/Scrollex/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/ersinkoc/Scrollex/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/ersinkoc/Scrollex/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ersinkoc/Scrollex/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ersinkoc/Scrollex/releases/tag/v1.0.0

@@ -7,7 +7,10 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     dts: true,
     sourcemap: true,
-    clean: true,
+    // No `clean` here: tsup runs the configs in this array in parallel, and cleaning
+    // `dist` from this one races the other config's `dist/plugins` output (it could
+    // delete the plugin .d.ts files after they were written). `npm run build` cleans
+    // the folder once, before tsup starts.
     treeshake: true,
     splitting: false,
     minify: false,

@@ -1,6 +1,6 @@
 {
   "name": "@oxog/scrollex",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Zero-dependency React virtualization library with micro-kernel plugin architecture",
   "author": {
     "name": "Ersin KOC",
@@ -61,7 +61,7 @@
   "sideEffects": false,
   "scripts": {
     "dev": "tsup --watch",
-    "build": "tsup",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsup && node -e \"const fs=require('fs');const files=['dist/index.js','dist/index.cjs','dist/index.d.ts','dist/index.d.cts','dist/index.js.map','dist/index.cjs.map','dist/plugins/index.js','dist/plugins/index.cjs','dist/plugins/index.d.ts','dist/plugins/index.d.cts','dist/plugins/index.js.map','dist/plugins/index.cjs.map'];const missing=files.filter(f=>!fs.existsSync(f));if(missing.length){console.error('Build incomplete - missing: '+missing.join(', '));process.exit(1)};console.log('Build verified: 12/12 dist files present.')\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

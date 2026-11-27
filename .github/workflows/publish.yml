@@ -1,7 +1,7 @@
 name: Publish
 
-# Publishing is triggered by the tag, not by a branch push, so a release is
-# always cut from the exact commit that carries the version in package.json.
+# A release is triggered by the tag, not by a branch push, so it is always cut
+# from the exact commit that carries the version in package.json.
 on:
   push:
     tags:
@@ -21,23 +21,28 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      # Required for npm provenance: the OIDC token is exchanged for a
-      # signed attestation that links the tarball to this workflow run.
+      # Required for npm provenance: the OIDC token is exchanged for a signed
+      # attestation that links the tarball to this workflow run.
       id-token: write
     steps:
       - uses: actions/checkout@v4
 
-      # Fail before the install, typecheck, tests and build if this version is
-      # already on the registry, so a re-run of a tag that did publish only
-      # costs one API call instead of the whole suite.
-      - name: Check that the version is not already on npm
+      # Both guards run before the install, typecheck, tests and build, so a
+      # mistyped tag or a version that is already on npm costs one API call
+      # instead of the whole suite. `npm view` fails open: a network error looks
+      # like a missing version, and the publish step then reports the real one.
+      - name: Check the tag and the version
         run: |
           version="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}."
+            exit 1
+          fi
           if npm view "@oxog/scrollex@${version}" version >/dev/null 2>&1; then
             echo "::error::@oxog/scrollex@${version} is already published on npm. Bump the version and tag the new commit instead of re-running this tag."
             exit 1
           fi
-          echo "@oxog/scrollex@${version} is not on npm yet."
+          echo "${GITHUB_REF_NAME} matches package.json and ${version} is not on npm yet."
 
       - uses: actions/setup-node@v4
         with:
@@ -57,20 +62,24 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check that the tag matches package.json
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          version="$(node -p "require('./package.json').version")"
-          echo "tag ${GITHUB_REF_NAME} -> ${tag}, package.json -> ${version}"
-          if [ "$tag" != "$version" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match package.json version ${version}."
-            exit 1
-          fi
-
-      # dist/ is never committed, so the build above is what gets packed. The
+      # dist/ is never committed, so the build above is what gets packed; the
       # build and tests already ran as their own steps, so lifecycle scripts are
-      # off here: prepublishOnly would only run them a second time.
+      # off here. A prerelease publishes under the identifier it carries
+      # (1.0.4-beta.0 -> beta) and anything else goes to latest, which a
+      # prerelease must never be able to move.
       - name: Publish
-        run: npm publish --provenance --access public --ignore-scripts
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          dist_tag=latest
+          if [ "$version" != "${version%%-*}" ]; then
+            prerelease="${version#*-}"
+            dist_tag="${prerelease%%.*}"
+            if ! printf '%s' "$dist_tag" | grep -Eq '^[a-z][a-z0-9-]*$'; then
+              echo "::error::Prerelease ${version} needs a named dist-tag: tag a version like 1.0.4-beta.0."
+              exit 1
+            fi
+          fi
+          echo "Publishing ${version} to dist-tag ${dist_tag}."
+          npm publish --provenance --access public --ignore-scripts --tag "$dist_tag"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
